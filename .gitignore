@@ -1,0 +1,11 @@
+node_modules/
+*.log
+.env
+
+# SQLite local files
+scoottok.db
+scoottok.db-shm
+scoottok.db-wal
+
+# Optional local backup DB
+database.json

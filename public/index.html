@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>ScootTok</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="shell">
+
+<section id="login" class="login-card">
+<h1>🛴 ScootTok</h1>
+<p class="subtitle">Entra, publica vídeos e personaliza o teu canal.</p>
+
+<div class="form-grid">
+<input id="user" placeholder="Username">
+<input id="pass" placeholder="Password" type="password">
+</div>
+
+<div class="auth-actions">
+<button onclick="login()">Login</button>
+<button class="secondary" onclick="register()">Criar conta</button>
+</div>
+</section>
+
+<section id="app" class="app-shell hidden">
+<header class="topbar">
+<div>
+<h1>🛴 ScootTok</h1>
+<p id="welcomeText" class="subtitle"></p>
+</div>
+
+<div class="menu-area">
+<button class="ghost icon-btn" onclick="toggleMenu()">⋯</button>
+<div id="menuDropdown" class="menu-dropdown hidden">
+<button onclick="openCustomizeModal()">Personalizar</button>
+<button class="danger" onclick="logout()">Sair</button>
+</div>
+</div>
+</header>
+
+<section id="uploadCard" class="panel upload-panel hidden">
+<div class="section-header">
+<h2>Postar vídeo</h2>
+<button class="secondary" onclick="showFeedView()">Voltar ao feed</button>
+</div>
+<div class="form-grid">
+<input id="title" placeholder="Título do vídeo">
+<input id="desc" placeholder="Descrição (opcional)">
+<input type="file" id="video" accept="video/*">
+</div>
+<button onclick="upload()">Upload</button>
+</section>
+
+<section id="feedSection" class="panel">
+<div class="section-header">
+<h2 id="sectionTitle">Explorar</h2>
+<div class="tabs">
+<button id="exploreBtn" class="tab active" onclick="loadVideos()">Explorar</button>
+<button id="followingBtn" class="tab" onclick="loadFollowing()">A seguir</button>
+</div>
+</div>
+<div id="feed" class="feed"></div>
+</section>
+
+<section id="profileSection" class="panel hidden">
+<div class="section-header">
+<h2 id="profileTitle">O teu perfil</h2>
+<button class="secondary" onclick="showFeedView()">Voltar ao feed</button>
+</div>
+
+<div class="profile-card">
+<button id="profileAvatarButton" class="avatar-shell" onclick="handleProfileAvatarClick()">
+<img id="profileAvatarLarge" class="avatar-img hidden" alt="Foto de perfil">
+<span id="profileAvatarFallbackLarge" class="avatar-fallback">👤</span>
+</button>
+
+<div>
+<h3 id="profileDisplayName"></h3>
+<p id="profileUsername" class="muted"></p>
+<p id="profileFollowers" class="muted"></p>
+<p id="profileHint" class="muted">Aqui aparecem todos os teus vídeos, views únicas e corações.</p>
+</div>
+</div>
+
+<div id="profileVideos" class="feed"></div>
+</section>
+
+<button id="profileFab" class="profile-fab" onclick="openProfileView()">
+<img id="profileAvatarSmall" class="avatar-img hidden" alt="Foto de perfil">
+<span id="profileAvatarFallbackSmall" class="avatar-fallback">👤</span>
+</button>
+
+<button id="uploadFab" class="upload-fab" onclick="openUploadView()" aria-label="Abrir página de publicação de vídeo">+</button>
+</section>
+
+<div id="customizeModal" class="modal hidden">
+<div class="modal-card">
+<div class="section-header">
+<h2>Personalizar canal</h2>
+<button class="ghost icon-btn" onclick="closeCustomizeModal()">✕</button>
+</div>
+
+<div class="form-grid">
+<input id="displayNameInput" placeholder="Nome do canal">
+<input id="avatarInput" type="file" accept="image/*">
+</div>
+
+<p class="muted">Podes começar com o boneco e depois trocar por uma foto de perfil.</p>
+
+<div class="auth-actions">
+<button onclick="saveProfile()">Guardar</button>
+<button class="secondary" onclick="closeCustomizeModal()">Cancelar</button>
+</div>
+</div>
+</div>
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
