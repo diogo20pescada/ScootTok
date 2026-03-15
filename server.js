@@ -9,9 +9,18 @@ const app = express()
 const PORT = Number(process.env.PORT) || 3000
 const ROOT_DIR = __dirname
 const PUBLIC_DIR = path.join(ROOT_DIR, "public")
-const UPLOADS_DIR = path.join(ROOT_DIR, "uploads")
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : ROOT_DIR
+const UPLOADS_DIR = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.join(DATA_DIR, "uploads")
 const LEGACY_DB_JSON_PATH = path.join(ROOT_DIR, "database.json")
-const SQLITE_PATH = path.join(ROOT_DIR, "scoottok.db")
+const SQLITE_PATH = process.env.DATABASE_PATH
+  ? path.resolve(process.env.DATABASE_PATH)
+  : path.join(DATA_DIR, "scoottok.db")
+
+if (!fs.existsSync(path.dirname(SQLITE_PATH))) {
+  fs.mkdirSync(path.dirname(SQLITE_PATH), { recursive: true })
+}
 
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true })
