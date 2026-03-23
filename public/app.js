@@ -223,11 +223,12 @@ function logout() {
 }
 
 async function upload() {
-	const file = video.files[0]
+	const videoFile = document.getElementById("video").files[0]
+	const thumbnailFile = document.getElementById("thumbnail").files[0]
 	const title = document.getElementById("title").value.trim()
 	const desc = document.getElementById("desc").value.trim()
 
-	if (!file) {
+	if (!videoFile) {
 		alert("Escolhe um vídeo")
 		return
 	}
@@ -238,7 +239,8 @@ async function upload() {
 	}
 
 	const form = new FormData()
-	form.append("video", file)
+	form.append("video", videoFile)
+	if (thumbnailFile) form.append("thumbnail", thumbnailFile)
 	form.append("user", currentUser.username)
 	form.append("title", title)
 	form.append("desc", desc)
@@ -252,6 +254,7 @@ async function upload() {
 		document.getElementById("title").value = ""
 		document.getElementById("desc").value = ""
 		document.getElementById("video").value = ""
+		document.getElementById("thumbnail").value = ""
 		loadVideos()
 		showFeedView()
 	} catch (error) {
@@ -289,6 +292,7 @@ function renderVideoCard(videoData, options = {}) {
 	const showFollow = !options.profile && videoData.user !== currentUser.username
 	const isFollowing = Boolean(videoData.followed)
 	const targetUser = encodeURIComponent(videoData.user)
+	const liked = Boolean(videoData.liked)
 
 	return `
 		<article class="video" id="video-card-${videoData.id}">
@@ -305,14 +309,27 @@ function renderVideoCard(videoData, options = {}) {
 				${showFollow ? `<button class="${isFollowing ? "secondary" : ""}" data-following="${isFollowing ? "1" : "0"}" data-target-user="${targetUser}" onclick="toggleFollow('${targetUser}', this)">${isFollowing ? "A seguir" : "Seguir"}</button>` : ""}
 			</div>
 
-			<video
-				src="/media/${videoData.id}"
-				controls
-				controlsList="nodownload noplaybackrate"
-				disablePictureInPicture
-				playsinline
-				onplay="markView(${videoData.id}, this)"
-			></video>
+			<div class="video-wrapper" ondblclick="handleVideoDoubleClick(event, ${videoData.id})">
+				<video
+					src="/media/${videoData.id}"
+					${videoData.thumbnail ? `poster="/thumbnail/${videoData.id}"` : ""}
+					muted
+					loop
+					controls
+					controlsList="nodownload noplaybackrate"
+					disablePictureInPicture
+					playsinline
+					onplay="markView(${videoData.id}, this)"
+				></video>
+				<button
+					class="heart-overlay${liked ? " liked" : ""}"
+					id="heart-${videoData.id}"
+					data-liked="${liked ? "1" : "0"}"
+					ondblclick="event.stopPropagation()"
+					onclick="toggleLike(${videoData.id})"
+					aria-label="Curtir"
+				>${liked ? "❤️" : "🤍"}</button>
+			</div>
 
 			<p>${escapeHtml(videoData.desc || "Sem descrição")}</p>
 
@@ -322,7 +339,6 @@ function renderVideoCard(videoData, options = {}) {
 			</div>
 
 			<div class="video-actions">
-				<button onclick="like(${videoData.id})">Curtir</button>
 				<button class="secondary" onclick="toggleComments(${videoData.id})">Ver comentários</button>
 			</div>
 
@@ -338,6 +354,39 @@ function renderVideoCard(videoData, options = {}) {
 	`
 }
 
+let videoObserver = null
+
+function setupVideoAutoplay() {
+	if (videoObserver) videoObserver.disconnect()
+	videoObserver = new IntersectionObserver((entries) => {
+		entries.forEach(entry => {
+			if (entry.isIntersecting) {
+				entry.target.play().catch(() => {})
+			} else {
+				entry.target.pause()
+			}
+		})
+	}, { threshold: 0.5 })
+
+	document.querySelectorAll(".video-wrapper video").forEach(video => {
+		videoObserver.observe(video)
+	})
+}
+
+function showLikeAnimation(wrapperEl) {
+	const pop = document.createElement("div")
+	pop.className = "heart-pop"
+	pop.textContent = "❤️"
+	wrapperEl.appendChild(pop)
+	setTimeout(() => pop.remove(), 800)
+}
+
+function handleVideoDoubleClick(event, id) {
+	if (!currentUser) return
+	showLikeAnimation(event.currentTarget)
+	toggleLike(id)
+}
+
 function renderVideoList(container, videos, options = {}) {
 	if (!videos.length) {
 		container.innerHTML = `<div class="video"><p class="muted">Ainda não há vídeos aqui.</p></div>`
@@ -345,6 +394,7 @@ function renderVideoList(container, videos, options = {}) {
 	}
 
 	container.innerHTML = videos.map(videoData => renderVideoCard(videoData, options)).join("")
+	setupVideoAutoplay()
 }
 
 async function loadVideos() {
@@ -382,7 +432,8 @@ async function loadProfile(username = currentUser.username) {
 	}
 }
 
-async function like(id) {
+async function toggleLike(id) {
+	if (!currentUser) return
 	try {
 		const videoData = await api("/like", {
 			method: "POST",
@@ -390,7 +441,15 @@ async function like(id) {
 			body: JSON.stringify({ id, user: currentUser.username })
 		})
 
+		const newLiked = Boolean(videoData.liked)
 		document.getElementById(`likes-${id}`).textContent = `❤️ ${videoData.likes || 0}`
+
+		const heartBtn = document.getElementById(`heart-${id}`)
+		if (heartBtn) {
+			heartBtn.textContent = newLiked ? "❤️" : "🤍"
+			heartBtn.dataset.liked = newLiked ? "1" : "0"
+			heartBtn.classList.toggle("liked", newLiked)
+		}
 
 		if (!profileSection.classList.contains("hidden")) {
 			loadProfile(currentProfileUsername || currentUser.username)
