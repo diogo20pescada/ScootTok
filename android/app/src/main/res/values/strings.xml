@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ScootTok</string>
+    <string name="title_activity_main">ScootTok</string>
+    <string name="package_name">com.scoottok.app</string>
+    <string name="custom_url_scheme">com.scoottok.app</string>
+</resources>

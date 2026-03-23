@@ -6,7 +6,6 @@ module.exports = {
   appId: "com.scoottok.app",
   appName: "ScootTok",
   webDir: "public",
-  bundledWebRuntime: false,
   server: {
     androidScheme: "https"
   }
