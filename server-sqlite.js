@@ -119,6 +119,38 @@ function getRowValue(row, key, fallback = 0) {
   return typeof value === "number" ? value : fallback
 }
 
+function extensionFromImageMime(mimeType) {
+  const normalized = String(mimeType || "").toLowerCase()
+  if (normalized === "image/png") return ".png"
+  if (normalized === "image/webp") return ".webp"
+  if (normalized === "image/gif") return ".gif"
+  if (normalized === "image/bmp") return ".bmp"
+  if (normalized === "image/svg+xml") return ".svg"
+  return ".jpg"
+}
+
+function saveThumbnailDataUrl(thumbnailData) {
+  const trimmed = String(thumbnailData || "").trim()
+  const match = trimmed.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/)
+
+  if (!match) {
+    throw new Error("Formato de capa inválido")
+  }
+
+  const mimeType = match[1]
+  const base64 = match[2].replace(/\s+/g, "")
+  const buffer = Buffer.from(base64, "base64")
+
+  if (!buffer.length) {
+    throw new Error("Capa vazia")
+  }
+
+  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${extensionFromImageMime(mimeType)}`
+  const filePath = path.join(UPLOADS_DIR, filename)
+  fs.writeFileSync(filePath, buffer)
+  return filename
+}
+
 function migrateFromLegacyJsonIfNeeded() {
   const usersCount = getRowValue(db.prepare("SELECT COUNT(*) AS count FROM users").get(), "count")
 
@@ -563,6 +595,55 @@ app.post("/upload", uploadHandler, (req, res) => {
   return res.json(decorateVideo(video, user))
 })
 
+app.post("/video/update", (req, res) => {
+  const videoId = Number(req.body.id)
+  const user = String(req.body.user || "").trim()
+  const title = String(req.body.title || "").trim()
+  const desc = String(req.body.desc || "").trim()
+  const thumbnailData = String(req.body.thumbnailData || "").trim()
+
+  const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(videoId)
+
+  if (!video) {
+    return res.status(404).json({ error: "Vídeo não encontrado" })
+  }
+
+  if (!user) {
+    return res.status(400).json({ error: "Utilizador obrigatório" })
+  }
+
+  if (video.user_username !== user) {
+    return res.status(403).json({ error: "Sem permissão para editar este vídeo" })
+  }
+
+  if (!title) {
+    return res.status(400).json({ error: "Nome do vídeo obrigatório" })
+  }
+
+  let thumbnail = String(video.thumbnail || "")
+  if (thumbnailData) {
+    try {
+      thumbnail = saveThumbnailDataUrl(thumbnailData)
+
+      if (video.thumbnail) {
+        const previousThumbPath = path.resolve(UPLOADS_DIR, String(video.thumbnail || ""))
+        if (previousThumbPath.startsWith(path.resolve(UPLOADS_DIR) + path.sep) && fs.existsSync(previousThumbPath)) {
+          fs.unlinkSync(previousThumbPath)
+        }
+      }
+    } catch (error) {
+      return res.status(400).json({ error: error.message || "Erro ao processar capa" })
+    }
+  }
+
+  db.prepare("UPDATE videos SET title = ?, description = ?, thumbnail = ? WHERE id = ?")
+    .run(title, desc, thumbnail, videoId)
+
+  persistLegacyJsonSnapshot()
+  const updatedVideo = db.prepare("SELECT * FROM videos WHERE id = ?").get(videoId)
+  return res.json(decorateVideo(updatedVideo, user))
+})
+
 app.get("/media/:id", (req, res) => {
   const id = Number(req.params.id)
   const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(id)
@@ -653,6 +734,7 @@ app.post("/view", (req, res) => {
 
 app.post("/like", (req, res) => {
   const { id, user } = req.body
+  const mode = String(req.body.mode || "toggle").toLowerCase()
   const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(Number(id))
 
   if (!video) {
@@ -667,15 +749,22 @@ app.post("/like", (req, res) => {
     return res.status(404).json({ error: "Utilizador não encontrado" })
   }
 
-  const alreadyLiked = db.prepare("SELECT 1 FROM video_likes WHERE video_id = ? AND username = ? LIMIT 1").get(video.id, String(user))
-  if (alreadyLiked) {
-    db.prepare("DELETE FROM video_likes WHERE video_id = ? AND username = ?").run(video.id, String(user))
+  const normalizedUser = String(user)
+  if (mode === "like") {
+    db.prepare("INSERT OR IGNORE INTO video_likes (video_id, username) VALUES (?, ?)").run(video.id, normalizedUser)
+  } else if (mode === "unlike") {
+    db.prepare("DELETE FROM video_likes WHERE video_id = ? AND username = ?").run(video.id, normalizedUser)
   } else {
-    db.prepare("INSERT OR IGNORE INTO video_likes (video_id, username) VALUES (?, ?)").run(video.id, String(user))
+    const alreadyLiked = db.prepare("SELECT 1 FROM video_likes WHERE video_id = ? AND username = ? LIMIT 1").get(video.id, normalizedUser)
+    if (alreadyLiked) {
+      db.prepare("DELETE FROM video_likes WHERE video_id = ? AND username = ?").run(video.id, normalizedUser)
+    } else {
+      db.prepare("INSERT OR IGNORE INTO video_likes (video_id, username) VALUES (?, ?)").run(video.id, normalizedUser)
+    }
   }
 
   persistLegacyJsonSnapshot()
-  return res.json(decorateVideo(video, String(user)))
+  return res.json(decorateVideo(video, normalizedUser))
 })
 
 app.post("/comment", (req, res) => {

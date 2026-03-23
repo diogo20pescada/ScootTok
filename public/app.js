@@ -26,7 +26,12 @@ const searchInput = document.getElementById("searchInput")
 const searchPreviewModal = document.getElementById("searchPreviewModal")
 const searchPreviewVideo = document.getElementById("searchPreviewVideo")
 const searchPreviewTitle = document.getElementById("searchPreviewTitle")
+const videoEditModal = document.getElementById("videoEditModal")
+const videoEditTitleInput = document.getElementById("videoEditTitleInput")
+const videoEditDescInput = document.getElementById("videoEditDescInput")
+const videoEditThumbnailInput = document.getElementById("videoEditThumbnailInput")
 const API_BASE_URL = String(window.SCOOTTOK_API_BASE_URL || "").trim().replace(/\/$/, "")
+let editingVideoId = null
 
 function toAppUrl(pathname) {
 	if (!pathname.startsWith("/")) {
@@ -401,6 +406,9 @@ function renderVideoCard(videoData, options = {}) {
 	const targetUser = encodeURIComponent(videoData.user)
 	const liked = Boolean(videoData.liked)
 	const isProfile = Boolean(options.profile)
+	const canEditVideo = isProfile && currentProfileUsername === currentUser.username && videoData.user === currentUser.username
+	const encodedVideoTitle = encodeURIComponent(String(videoData.title || ""))
+	const encodedVideoDesc = encodeURIComponent(String(videoData.desc || ""))
 	const dblClickAttr = isProfile ? "" : `ondblclick="handleVideoDoubleClick(event, ${videoData.id})"`
 	const videoAttrs = isProfile
 		? `controls controlsList="nodownload noplaybackrate" disablePictureInPicture`
@@ -446,6 +454,12 @@ function renderVideoCard(videoData, options = {}) {
 					<div class="action-btn">
 						<button class="action-icon-btn" onclick="toggleSound()" aria-label="${soundLabel}" title="${soundLabel}" id="sound-btn-${videoData.id}">${soundIcon}</button>
 					</div>
+
+					${canEditVideo ? `
+						<div class="action-btn">
+							<button class="action-icon-btn video-options-btn" onclick="openVideoEditModal(${videoData.id}, '${encodedVideoTitle}', '${encodedVideoDesc}')" aria-label="Editar vídeo" title="Editar vídeo">⋯</button>
+						</div>
+					` : ""}
 
 					<div class="action-btn">
 						<button
@@ -530,6 +544,27 @@ function closeSearchPreview() {
 	searchPreviewModal.classList.add("hidden")
 }
 
+function openVideoEditModal(id, encodedTitle, encodedDesc) {
+	if (!currentUser || currentProfileUsername !== currentUser.username || !videoEditModal) {
+		return
+	}
+
+	editingVideoId = Number(id)
+	videoEditTitleInput.value = decodeURIComponent(encodedTitle || "")
+	videoEditDescInput.value = decodeURIComponent(encodedDesc || "")
+	videoEditThumbnailInput.value = ""
+	videoEditModal.classList.remove("hidden")
+}
+
+function closeVideoEditModal() {
+	if (!videoEditModal) {
+		return
+	}
+
+	editingVideoId = null
+	videoEditModal.classList.add("hidden")
+}
+
 let videoObserver = null
 
 function syncVideoSoundState() {
@@ -580,7 +615,7 @@ function handleVideoDoubleClick(event, id) {
 	if (!currentUser) return
 	if (event.target.closest("button, input, .comments-panel")) return
 	showLikeAnimation(event.currentTarget)
-	toggleLike(id)
+	toggleLike(id, { mode: "like" })
 }
 
 function renderVideoList(container, videos, options = {}) {
@@ -646,13 +681,26 @@ async function loadProfile(username = currentUser.username) {
 	}
 }
 
-async function toggleLike(id) {
+const likeRequestsInFlight = new Set()
+
+async function toggleLike(id, options = {}) {
 	if (!currentUser) return
+	if (likeRequestsInFlight.has(id)) return
+
+	const mode = options.mode === "like" ? "like" : "toggle"
+	if (mode === "like") {
+		const heartBtn = document.getElementById(`heart-${id}`)
+		if (heartBtn?.dataset?.liked === "1") {
+			return
+		}
+	}
+
+	likeRequestsInFlight.add(id)
 	try {
 		const videoData = await api("/like", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ id, user: currentUser.username })
+			body: JSON.stringify({ id, user: currentUser.username, mode })
 		})
 
 		const newLiked = Boolean(videoData.liked)
@@ -670,6 +718,8 @@ async function toggleLike(id) {
 		}
 	} catch (error) {
 		alert(error.message)
+	} finally {
+		likeRequestsInFlight.delete(id)
 	}
 }
 
@@ -818,6 +868,49 @@ async function saveProfile() {
 	}
 }
 
+async function saveVideoEdit() {
+	if (!currentUser || !editingVideoId) {
+		return
+	}
+
+	const title = videoEditTitleInput.value.trim()
+	const desc = videoEditDescInput.value.trim()
+
+	if (!title) {
+		alert("Nome do vídeo obrigatório")
+		return
+	}
+
+	try {
+		let thumbnailData = ""
+		const thumbnailFile = videoEditThumbnailInput.files[0]
+		if (thumbnailFile) {
+			thumbnailData = await fileToBase64(thumbnailFile)
+		}
+
+		await api("/video/update", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				id: editingVideoId,
+				user: currentUser.username,
+				title,
+				desc,
+				thumbnailData
+			})
+		})
+
+		closeVideoEditModal()
+		if (!profileSection.classList.contains("hidden")) {
+			await loadProfile(currentProfileUsername || currentUser.username)
+		} else {
+			reloadCurrentFeed()
+		}
+	} catch (error) {
+		alert(error.message)
+	}
+}
+
 document.addEventListener("click", event => {
 	if (!event.target.closest(".menu-area")) {
 		closeMenu()
@@ -833,6 +926,10 @@ document.addEventListener("click", event => {
 
 	if (event.target === searchPreviewModal) {
 		closeSearchPreview()
+	}
+
+	if (event.target === videoEditModal) {
+		closeVideoEditModal()
 	}
 })
 

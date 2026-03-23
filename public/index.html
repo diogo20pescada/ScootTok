@@ -141,6 +141,7 @@
 <button class="secondary" onclick="closeCustomizeModal()">Cancelar</button>
 </div>
 </div>
+</div>
 
 <div id="searchPreviewModal" class="modal hidden">
 <div class="modal-card search-preview-card">
@@ -149,6 +150,28 @@
 <button class="ghost icon-btn" onclick="closeSearchPreview()">✕</button>
 </div>
 <video id="searchPreviewVideo" controls playsinline style="width:100%;border-radius:16px;background:#000"></video>
+</div>
+</div>
+
+<div id="videoEditModal" class="modal hidden">
+<div class="modal-card">
+<div class="section-header">
+<h2>Editar vídeo</h2>
+<button class="ghost icon-btn" onclick="closeVideoEditModal()">✕</button>
+</div>
+
+<div class="form-grid">
+<input id="videoEditTitleInput" placeholder="Nome do vídeo">
+<input id="videoEditDescInput" placeholder="Descrição do vídeo">
+<div>
+<p class="muted" style="margin:0 0 6px;font-size:13px">Nova capa (opcional)</p>
+<input id="videoEditThumbnailInput" type="file" accept="image/*">
+</div>
+</div>
+
+<div class="auth-actions">
+<button onclick="saveVideoEdit()">Guardar</button>
+<button class="secondary" onclick="closeVideoEditModal()">Cancelar</button>
 </div>
 </div>
 </div>
