@@ -26,6 +26,15 @@ const searchInput = document.getElementById("searchInput")
 const searchPreviewModal = document.getElementById("searchPreviewModal")
 const searchPreviewVideo = document.getElementById("searchPreviewVideo")
 const searchPreviewTitle = document.getElementById("searchPreviewTitle")
+const API_BASE_URL = String(window.SCOOTTOK_API_BASE_URL || "").trim().replace(/\/$/, "")
+
+function toAppUrl(pathname) {
+	if (!pathname.startsWith("/")) {
+		return pathname
+	}
+
+	return API_BASE_URL ? `${API_BASE_URL}${pathname}` : pathname
+}
 
 function escapeHtml(text) {
 	return String(text || "")
@@ -172,7 +181,7 @@ function fileToBase64(file) {
 }
 
 async function api(url, options = {}) {
-	const response = await fetch(url, options)
+	const response = await fetch(toAppUrl(url), options)
 	const isJson = response.headers.get("content-type")?.includes("application/json")
 	const data = isJson ? await response.json() : await response.text()
 
@@ -406,8 +415,8 @@ function renderVideoCard(videoData, options = {}) {
 		>
 			<div class="video-wrapper">
 				<video
-					src="/media/${videoData.id}"
-					${videoData.thumbnail ? `poster="/thumbnail/${videoData.id}"` : ""}
+					src="${toAppUrl(`/media/${videoData.id}`)}"
+					${videoData.thumbnail ? `poster="${toAppUrl(`/thumbnail/${videoData.id}`)}"` : ""}
 					${soundEnabled ? "" : "muted"}
 					loop
 					${videoAttrs}
@@ -483,7 +492,7 @@ function renderSearchResultCard(videoData) {
 	const title = escapeHtml(videoData.title || "Sem título")
 	const encodedTitle = encodeURIComponent(String(videoData.title || "Sem título"))
 	const thumb = videoData.thumbnail
-		? `<img class="search-thumb" src="/thumbnail/${videoData.id}" alt="Capa de ${title}">`
+		? `<img class="search-thumb" src="${toAppUrl(`/thumbnail/${videoData.id}`)}" alt="Capa de ${title}">`
 		: `<div class="search-thumb-fallback">Sem capa</div>`
 
 	return `
@@ -504,7 +513,7 @@ function openSearchPreview(id, encodedTitle) {
 
 	const title = decodeURIComponent(encodedTitle || "")
 	searchPreviewTitle.textContent = title || "Preview"
-	searchPreviewVideo.src = `/media/${id}`
+	searchPreviewVideo.src = toAppUrl(`/media/${id}`)
 	searchPreviewModal.classList.remove("hidden")
 	searchPreviewVideo.play().catch(() => {})
 }
