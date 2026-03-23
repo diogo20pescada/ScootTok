@@ -2,6 +2,7 @@ let currentUser = null
 let currentProfileUsername = null
 let currentFeedMode = "explore"
 const viewedVideos = new Set()
+let soundEnabled = localStorage.getItem("scoottokSound") === "1"
 
 const loginScreen = document.getElementById("login")
 const appScreen = document.getElementById("app")
@@ -298,6 +299,8 @@ function renderVideoCard(videoData, options = {}) {
 	const videoAttrs = isProfile
 		? `controls controlsList="nodownload noplaybackrate" disablePictureInPicture`
 		: "playsinline"
+	const soundIcon = soundEnabled ? "🔊" : "🔇"
+	const soundLabel = soundEnabled ? "Desativar som" : "Ativar som"
 
 	return `
 		<article
@@ -309,7 +312,7 @@ function renderVideoCard(videoData, options = {}) {
 				<video
 					src="/media/${videoData.id}"
 					${videoData.thumbnail ? `poster="/thumbnail/${videoData.id}"` : ""}
-					muted
+					${soundEnabled ? "" : "muted"}
 					loop
 					${videoAttrs}
 					onplay="markView(${videoData.id}, this)"
@@ -334,6 +337,10 @@ function renderVideoCard(videoData, options = {}) {
 				</div>
 
 				<div class="overlay-right">
+					<div class="action-btn">
+						<button class="action-icon-btn" onclick="toggleSound()" aria-label="${soundLabel}" title="${soundLabel}" id="sound-btn-${videoData.id}">${soundIcon}</button>
+					</div>
+
 					<div class="action-btn">
 						<button
 							class="heart-overlay${liked ? " liked" : ""}"
@@ -377,6 +384,24 @@ function renderVideoCard(videoData, options = {}) {
 
 let videoObserver = null
 
+function syncVideoSoundState() {
+	document.querySelectorAll(".video-wrapper video").forEach(video => {
+		video.muted = !soundEnabled
+	})
+
+	document.querySelectorAll("[id^='sound-btn-']").forEach(button => {
+		button.textContent = soundEnabled ? "🔊" : "🔇"
+		button.setAttribute("aria-label", soundEnabled ? "Desativar som" : "Ativar som")
+		button.setAttribute("title", soundEnabled ? "Desativar som" : "Ativar som")
+	})
+}
+
+function toggleSound() {
+	soundEnabled = !soundEnabled
+	localStorage.setItem("scoottokSound", soundEnabled ? "1" : "0")
+	syncVideoSoundState()
+}
+
 function setupVideoAutoplay() {
 	if (videoObserver) videoObserver.disconnect()
 	videoObserver = new IntersectionObserver((entries) => {
@@ -390,6 +415,7 @@ function setupVideoAutoplay() {
 	}, { threshold: 0.5 })
 
 	document.querySelectorAll(".video-wrapper video").forEach(video => {
+		video.muted = !soundEnabled
 		videoObserver.observe(video)
 	})
 }

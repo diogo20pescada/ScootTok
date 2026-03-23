@@ -4,6 +4,13 @@
   padding:0;
 }
 
+:root{
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ui-offset-top: 14px;
+  --ui-offset-bottom: 16px;
+}
+
 body{
   font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   background:#000;
@@ -51,7 +58,7 @@ body{
 /* ── TOPBAR (fixed, glass gradient) ── */
 .topbar{
   position:fixed;
-  top:0; left:0; right:0;
+  top:calc(var(--safe-top) + var(--ui-offset-top)); left:0; right:0;
   z-index:50;
   height:58px;
   padding:0 16px;
@@ -145,7 +152,7 @@ body{
   z-index:2;
   display:flex;
   align-items:flex-end;
-  padding-bottom:28px;
+  padding-bottom:calc(28px + var(--safe-bottom) + var(--ui-offset-bottom));
 }
 
 .overlay-left{
@@ -316,7 +323,7 @@ body{
 /* ── COMMENTS PANEL (slides up from bottom of video) ── */
 .comments-panel{
   position:absolute;
-  bottom:0; left:0; right:0;
+  bottom:calc(var(--safe-bottom) + var(--ui-offset-bottom)); left:0; right:0;
   z-index:10;
   max-height:62vh;
   background:rgba(8,10,20,.95);
@@ -388,7 +395,7 @@ body{
   overflow-y:auto;
   overscroll-behavior:contain;
   background:linear-gradient(180deg,#08090f 0%,#0d1020 100%);
-  padding:72px 16px 100px;
+  padding:calc(72px + var(--safe-top) + var(--ui-offset-top)) 16px calc(100px + var(--safe-bottom) + var(--ui-offset-bottom));
 }
 
 .upload-inner,.profile-inner{
@@ -510,7 +517,7 @@ body{
 /* ── FABs ── */
 .profile-fab{
   position:fixed;
-  right:20px; bottom:24px;
+  right:20px; bottom:calc(24px + var(--safe-bottom) + var(--ui-offset-bottom));
   width:54px; height:54px;
   z-index:50;
   border:2px solid rgba(255,255,255,.15);
@@ -532,7 +539,7 @@ body{
 .upload-fab{
   position:fixed;
   left:50%;
-  bottom:24px;
+  bottom:calc(24px + var(--safe-bottom) + var(--ui-offset-bottom));
   transform:translateX(-50%);
   width:54px; height:54px;
   z-index:50;
@@ -658,6 +665,11 @@ button.danger   { background:#e5484d; }
 
 /* ── RESPONSIVE ── */
 @media(max-width:600px){
+  :root{
+    --ui-offset-top: 18px;
+    --ui-offset-bottom: 20px;
+  }
+
   .topbar-logo{ font-size:17px; }
   .tab{ padding:6px 12px; font-size:13px; }
   .overlay-title{ font-size:14px; }
