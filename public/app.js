@@ -140,14 +140,15 @@ function handleProfileAvatarClick() {
 
 function renderProfileHeader(userData, followers, following) {
 	const isOwnProfile = userData.username === currentUser.username
+	const loginCount = Number(userData.loginCount) || 0
 
 	profileTitle.textContent = isOwnProfile ? "O teu perfil" : `Perfil de ${userData.displayName}`
 	document.getElementById("profileDisplayName").textContent = userData.displayName
 	document.getElementById("profileUsername").textContent = `@${userData.username}`
-	profileFollowers.textContent = `${followers || 0} seguidores · ${following || 0} a seguir`
+	profileFollowers.textContent = `${followers || 0} seguidores · ${following || 0} a seguir · ${loginCount} logins`
 	profileHint.textContent = isOwnProfile
-		? "Aqui aparecem todos os teus vídeos, views únicas e corações."
-		: "Aqui aparecem os vídeos deste canal, views únicas e corações."
+		? "Aqui aparecem todos os teus vídeos, views únicas, corações e total de logins."
+		: "Aqui aparecem os vídeos deste canal, views únicas, corações e total de logins."
 	updateAvatar("profileAvatarLarge", "profileAvatarFallbackLarge", userData.avatar)
 }
 

@@ -27,6 +27,9 @@ UPLOADS_DIR=/var/data/uploads
 
 Sem disco persistente, a base de dados e uploads podem desaparecer apos restart/deploy.
 
+O servidor SQLite agora tambem atualiza o ficheiro `database.json` a cada alteracao importante.
+Isto evita voltar a um snapshot antigo em muitos restarts locais, mas em hosting sem disco persistente continuas a precisar de um volume persistente para nao perder dados.
+
 ## Upload Para GitHub Com Ficheiros > 25MB
 
 O limite de 25MB e do upload no site do GitHub. Para videos grandes, usa Git LFS no terminal:

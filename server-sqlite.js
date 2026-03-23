@@ -13,7 +13,9 @@ const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : ROO
 const UPLOADS_DIR = process.env.UPLOADS_DIR
   ? path.resolve(process.env.UPLOADS_DIR)
   : path.join(DATA_DIR, "uploads")
-const LEGACY_DB_JSON_PATH = path.join(ROOT_DIR, "database.json")
+const LEGACY_DB_JSON_PATH = process.env.LEGACY_DB_JSON_PATH
+  ? path.resolve(process.env.LEGACY_DB_JSON_PATH)
+  : path.join(ROOT_DIR, "database.json")
 const SQLITE_PATH = process.env.DATABASE_PATH
   ? path.resolve(process.env.DATABASE_PATH)
   : path.join(DATA_DIR, "scoottok.db")
@@ -37,7 +39,8 @@ db.exec(`
     username TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL,
     display_name TEXT NOT NULL,
-    avatar TEXT NOT NULL DEFAULT ''
+    avatar TEXT NOT NULL DEFAULT '',
+    login_count INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS videos (
@@ -103,6 +106,10 @@ try {
   db.exec(`ALTER TABLE video_views ADD COLUMN viewed_at INTEGER NOT NULL DEFAULT 0`)
 } catch (_) {}
 
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0`)
+} catch (_) {}
+
 function getRowValue(row, key, fallback = 0) {
   if (!row) {
     return fallback
@@ -131,13 +138,13 @@ function migrateFromLegacyJsonIfNeeded() {
   const follows = Array.isArray(legacy.follows) ? legacy.follows : []
 
   const insertUser = db.prepare(`
-    INSERT OR IGNORE INTO users (id, username, password, display_name, avatar)
-    VALUES (@id, @username, @password, @display_name, @avatar)
+    INSERT OR IGNORE INTO users (id, username, password, display_name, avatar, login_count)
+    VALUES (@id, @username, @password, @display_name, @avatar, @login_count)
   `)
 
   const insertVideo = db.prepare(`
-    INSERT OR IGNORE INTO videos (id, user_username, title, description, file_name, mimetype, created_at)
-    VALUES (@id, @user_username, @title, @description, @file_name, @mimetype, @created_at)
+    INSERT OR IGNORE INTO videos (id, user_username, title, description, file_name, mimetype, thumbnail, created_at)
+    VALUES (@id, @user_username, @title, @description, @file_name, @mimetype, @thumbnail, @created_at)
   `)
 
   const insertFollow = db.prepare(`
@@ -174,7 +181,8 @@ function migrateFromLegacyJsonIfNeeded() {
         username,
         password,
         display_name: String(user.displayName || username),
-        avatar: String(user.avatar || "")
+        avatar: String(user.avatar || ""),
+        login_count: Number(user.loginCount) || 0
       })
     })
 
@@ -196,7 +204,8 @@ function migrateFromLegacyJsonIfNeeded() {
         description: String(video.desc || ""),
         file_name: String(video.file || ""),
         mimetype: String(video.mimetype || ""),
-        created_at: videoId
+        thumbnail: String(video.thumbnail || ""),
+        created_at: Number(video.createdAt) || videoId
       })
 
       const likedBy = Array.isArray(video.likedBy) ? video.likedBy : []
@@ -253,6 +262,72 @@ function migrateFromLegacyJsonIfNeeded() {
   })
 
   transaction()
+
+  persistLegacyJsonSnapshot()
+}
+
+function buildLegacyJsonSnapshot() {
+  const users = db
+    .prepare("SELECT id, username, password, display_name, avatar, login_count FROM users ORDER BY id ASC")
+    .all()
+    .map(user => ({
+      id: user.id,
+      username: user.username,
+      password: user.password,
+      displayName: user.display_name,
+      avatar: user.avatar || "",
+      loginCount: Number(user.login_count) || 0
+    }))
+
+  const follows = db
+    .prepare("SELECT follower, following FROM follows ORDER BY follower ASC, following ASC")
+    .all()
+
+  const getLikesByVideoId = db.prepare("SELECT username FROM video_likes WHERE video_id = ? ORDER BY username ASC")
+  const getViewsByVideoId = db.prepare("SELECT username FROM video_views WHERE video_id = ? ORDER BY viewed_at DESC, username ASC")
+  const getSnapshotCommentsByVideoId = db.prepare(`
+    SELECT id, user_display, text, author_username, created_at
+    FROM comments
+    WHERE video_id = ?
+    ORDER BY id ASC
+  `)
+
+  const videos = db
+    .prepare("SELECT * FROM videos ORDER BY created_at DESC")
+    .all()
+    .map(video => ({
+      id: video.id,
+      user: video.user_username,
+      title: video.title,
+      desc: video.description || "",
+      file: video.file_name,
+      mimetype: video.mimetype || "",
+      thumbnail: video.thumbnail || "",
+      createdAt: video.created_at || video.id,
+      likedBy: getLikesByVideoId.all(video.id).map(row => row.username),
+      viewedBy: getViewsByVideoId.all(video.id).map(row => row.username),
+      comments: getSnapshotCommentsByVideoId.all(video.id).map(comment => ({
+        id: comment.id,
+        user: comment.user_display || "Anónimo",
+        text: comment.text || "",
+        author: comment.author_username || "",
+        createdAt: comment.created_at || comment.id
+      }))
+    }))
+
+  return { users, videos, follows }
+}
+
+function persistLegacyJsonSnapshot() {
+  try {
+    const snapshot = buildLegacyJsonSnapshot()
+    const tempPath = `${LEGACY_DB_JSON_PATH}.tmp`
+    fs.mkdirSync(path.dirname(LEGACY_DB_JSON_PATH), { recursive: true })
+    fs.writeFileSync(tempPath, JSON.stringify(snapshot, null, 2), "utf8")
+    fs.renameSync(tempPath, LEGACY_DB_JSON_PATH)
+  } catch (error) {
+    console.error("Falha ao atualizar database.json:", error)
+  }
 }
 
 function getSafeUser(user) {
@@ -260,7 +335,8 @@ function getSafeUser(user) {
     id: user.id,
     username: user.username,
     displayName: user.display_name,
-    avatar: user.avatar || ""
+    avatar: user.avatar || "",
+    loginCount: Number(user.login_count) || 0
   }
 }
 
@@ -430,9 +506,11 @@ app.post("/register", (req, res) => {
 
   const id = Date.now()
   db.prepare(`
-    INSERT INTO users (id, username, password, display_name, avatar)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(id, username, password, username, "")
+    INSERT INTO users (id, username, password, display_name, avatar, login_count)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, username, password, username, "", 0)
+
+  persistLegacyJsonSnapshot()
 
   const user = getUserByUsername(username)
   return res.json(getSafeUser(user))
@@ -448,7 +526,10 @@ app.post("/login", (req, res) => {
     return res.status(401).json({ error: "Erro login" })
   }
 
-  return res.json(getSafeUser(user))
+  db.prepare("UPDATE users SET login_count = login_count + 1 WHERE username = ?").run(username)
+  persistLegacyJsonSnapshot()
+
+  return res.json(getSafeUser(getUserByUsername(username)))
 })
 
 app.post("/upload", uploadHandler, (req, res) => {
@@ -475,6 +556,8 @@ app.post("/upload", uploadHandler, (req, res) => {
     INSERT INTO videos (id, user_username, title, description, file_name, mimetype, thumbnail, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, user, title, desc, videoFile.filename, String(videoFile.mimetype || ""), thumbnailFile ? thumbnailFile.filename : "", id)
+
+  persistLegacyJsonSnapshot()
 
   const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(id)
   return res.json(decorateVideo(video, user))
@@ -563,6 +646,8 @@ app.post("/view", (req, res) => {
     VALUES (?, ?, ?)
     ON CONFLICT(video_id, username) DO UPDATE SET viewed_at = excluded.viewed_at
   `).run(video.id, String(user), Date.now())
+
+  persistLegacyJsonSnapshot()
   return res.json(decorateVideo(video, String(user)))
 })
 
@@ -588,6 +673,8 @@ app.post("/like", (req, res) => {
   } else {
     db.prepare("INSERT OR IGNORE INTO video_likes (video_id, username) VALUES (?, ?)").run(video.id, String(user))
   }
+
+  persistLegacyJsonSnapshot()
   return res.json(decorateVideo(video, String(user)))
 })
 
@@ -617,6 +704,8 @@ app.post("/comment", (req, res) => {
     commentId
   )
 
+  persistLegacyJsonSnapshot()
+
   return res.json(decorateVideo(video, String(author || "")))
 })
 
@@ -645,6 +734,7 @@ app.post("/comment/delete", (req, res) => {
   }
 
   db.prepare("DELETE FROM comments WHERE id = ?").run(comment.id)
+  persistLegacyJsonSnapshot()
   return res.json(decorateVideo(video, String(user)))
 })
 
@@ -665,6 +755,7 @@ app.post("/follow", (req, res) => {
   }
 
   db.prepare("INSERT OR IGNORE INTO follows (follower, following) VALUES (?, ?)").run(follower, following)
+  persistLegacyJsonSnapshot()
   return res.json({ ok: true })
 })
 
@@ -681,6 +772,7 @@ app.post("/unfollow", (req, res) => {
   }
 
   db.prepare("DELETE FROM follows WHERE follower = ? AND following = ?").run(follower, following)
+  persistLegacyJsonSnapshot()
   return res.json({ ok: true })
 })
 
@@ -742,6 +834,7 @@ app.post("/profile/update", (req, res) => {
   }
 
   db.prepare("UPDATE users SET display_name = ?, avatar = ? WHERE username = ?").run(displayName, avatar, username)
+  persistLegacyJsonSnapshot()
   return res.json(getSafeUser(getUserByUsername(username)))
 })
 
