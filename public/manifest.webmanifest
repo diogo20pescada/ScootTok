@@ -1,0 +1,19 @@
+{
+  "name": "ScootTok",
+  "short_name": "ScootTok",
+  "description": "Partilha videos e descobre creators de scooter.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0f1c",
+  "theme_color": "#0a0f1c",
+  "lang": "pt-PT",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
