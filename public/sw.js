@@ -5,7 +5,7 @@ const CORE_ASSETS = [
   "/style.css",
   "/app.js",
   "/manifest.webmanifest",
-  "/icon.svg"
+  "/icon.png"
 ]
 
 self.addEventListener("install", event => {
