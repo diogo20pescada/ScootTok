@@ -357,7 +357,7 @@ function getCommentsByVideoId(videoId) {
     .prepare("SELECT id, user_display, text, author_username FROM comments WHERE video_id = ? ORDER BY id ASC")
     .all(videoId)
     .map(comment => ({
-      id: comment.id,
+      id: String(comment.id),
       user: comment.user_display || "Anónimo",
       text: comment.text || "",
       author: comment.author_username || ""
@@ -721,7 +721,20 @@ app.post("/comment/delete", (req, res) => {
     return res.status(400).json({ error: "Utilizador obrigatório" })
   }
 
-  const comment = db.prepare("SELECT * FROM comments WHERE id = ? AND video_id = ?").get(Number(commentId), video.id)
+  const normalizedCommentId = String(commentId ?? "").trim()
+  if (!normalizedCommentId) {
+    return res.status(400).json({ error: "Comentário inválido" })
+  }
+
+  let comment = db
+    .prepare("SELECT * FROM comments WHERE CAST(id AS TEXT) = ? AND video_id = ?")
+    .get(normalizedCommentId, video.id)
+
+  if (!comment && Number.isFinite(Number(normalizedCommentId))) {
+    comment = db
+      .prepare("SELECT * FROM comments WHERE id = ? AND video_id = ?")
+      .get(Number(normalizedCommentId), video.id)
+  }
 
   if (!comment) {
     return res.status(404).json({ error: "Comentário não encontrado" })

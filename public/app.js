@@ -387,7 +387,7 @@ function renderComments(videoData) {
 			<div class="comment-item">
 				<div class="comment-head">
 					<strong>${escapeHtml(comment.user)}</strong>
-					${canDeleteComment(videoData, comment) ? `<button class="danger" onclick="deleteComment(${videoData.id}, ${comment.id})">Apagar</button>` : ""}
+					${canDeleteComment(videoData, comment) ? `<button class="danger" onclick="deleteComment(${videoData.id}, ${JSON.stringify(String(comment.id ?? ""))})">Apagar</button>` : ""}
 				</div>
 				<p>${escapeHtml(comment.text)}</p>
 			</div>
