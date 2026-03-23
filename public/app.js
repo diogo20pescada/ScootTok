@@ -293,62 +293,83 @@ function renderVideoCard(videoData, options = {}) {
 	const isFollowing = Boolean(videoData.followed)
 	const targetUser = encodeURIComponent(videoData.user)
 	const liked = Boolean(videoData.liked)
+	const isProfile = Boolean(options.profile)
+	const dblClickAttr = isProfile ? "" : `ondblclick="handleVideoDoubleClick(event, ${videoData.id})"`
+	const videoAttrs = isProfile
+		? `controls controlsList="nodownload noplaybackrate" disablePictureInPicture`
+		: "playsinline"
 
 	return `
-		<article class="video" id="video-card-${videoData.id}">
-			<div class="video-header">
-				<div>
-					<h3>${escapeHtml(videoData.title)}</h3>
-					<div class="video-meta">
-						<button class="owner-avatar-btn" onclick="openUserProfile('${targetUser}')" aria-label="Abrir perfil de ${escapeHtml(videoData.owner?.displayName || videoData.user)}">
-							${getAvatarMarkup(videoData.owner)}
-						</button>
-						<span>${escapeHtml(videoData.owner?.displayName || videoData.user)}</span>
-					</div>
-				</div>
-				${showFollow ? `<button class="${isFollowing ? "secondary" : ""}" data-following="${isFollowing ? "1" : "0"}" data-target-user="${targetUser}" onclick="toggleFollow('${targetUser}', this)">${isFollowing ? "A seguir" : "Seguir"}</button>` : ""}
-			</div>
-
-			<div class="video-wrapper" ondblclick="handleVideoDoubleClick(event, ${videoData.id})">
+		<article
+			class="video${isProfile ? " video-card-mode" : ""}"
+			id="video-card-${videoData.id}"
+			${dblClickAttr}
+		>
+			<div class="video-wrapper">
 				<video
 					src="/media/${videoData.id}"
 					${videoData.thumbnail ? `poster="/thumbnail/${videoData.id}"` : ""}
 					muted
 					loop
-					controls
-					controlsList="nodownload noplaybackrate"
-					disablePictureInPicture
-					playsinline
+					${videoAttrs}
 					onplay="markView(${videoData.id}, this)"
 				></video>
-				<button
-					class="heart-overlay${liked ? " liked" : ""}"
-					id="heart-${videoData.id}"
-					data-liked="${liked ? "1" : "0"}"
-					ondblclick="event.stopPropagation()"
-					onclick="toggleLike(${videoData.id})"
-					aria-label="Curtir"
-				>${liked ? "❤️" : "🤍"}</button>
 			</div>
 
-			<p>${escapeHtml(videoData.desc || "Sem descrição")}</p>
+			<div class="video-scrim"></div>
 
-			<div class="video-stats">
-				<span class="stat-pill" id="views-${videoData.id}">👁️ ${videoData.views || 0} views</span>
-				<span class="stat-pill" id="likes-${videoData.id}">❤️ ${videoData.likes || 0}</span>
+			<div class="video-overlay">
+				<div class="overlay-left">
+					<div class="overlay-creator">
+						<button class="owner-avatar-btn" onclick="openUserProfile('${targetUser}')" aria-label="Perfil">
+							${getAvatarMarkup(videoData.owner, "creator-avatar")}
+						</button>
+						<div class="creator-info">
+							<span class="creator-name">${escapeHtml(videoData.owner?.displayName || videoData.user)}</span>
+							${showFollow ? `<button class="follow-pill${isFollowing ? " following" : ""}" data-following="${isFollowing ? "1" : "0"}" data-target-user="${targetUser}" onclick="toggleFollow('${targetUser}', this)">${isFollowing ? "A seguir" : "Seguir"}</button>` : ""}
+						</div>
+					</div>
+					<h3 class="overlay-title">${escapeHtml(videoData.title)}</h3>
+					${videoData.desc ? `<p class="overlay-desc">${escapeHtml(videoData.desc)}</p>` : ""}
+				</div>
+
+				<div class="overlay-right">
+					<div class="action-btn">
+						<button
+							class="heart-overlay${liked ? " liked" : ""}"
+							id="heart-${videoData.id}"
+							data-liked="${liked ? "1" : "0"}"
+							ondblclick="event.stopPropagation()"
+							onclick="toggleLike(${videoData.id})"
+							aria-label="Curtir"
+						>${liked ? "❤️" : "🤍"}</button>
+						<span class="action-count" id="likes-${videoData.id}">${videoData.likes || 0}</span>
+					</div>
+
+					<div class="action-btn">
+						<button class="action-icon-btn" onclick="toggleComments(${videoData.id})" aria-label="Comentários">💬</button>
+						<span class="action-count">${(videoData.comments || []).length}</span>
+					</div>
+
+					<div class="action-btn">
+						<div class="stat-icon-btn">👁️</div>
+						<span class="action-count" id="views-${videoData.id}">${videoData.views || 0}</span>
+					</div>
+				</div>
 			</div>
 
-			<div class="video-actions">
-				<button class="secondary" onclick="toggleComments(${videoData.id})">Ver comentários</button>
-			</div>
-
-			<div class="comment-row">
-				<input id="c${videoData.id}" placeholder="Comentário">
-				<button onclick="comment(${videoData.id})">Enviar</button>
-			</div>
-
-			<div id="comments-${videoData.id}" class="comments hidden">
-				${renderComments(videoData)}
+			<div id="comments-panel-${videoData.id}" class="comments-panel hidden">
+				<div class="comments-panel-header">
+					<span>Comentários (${(videoData.comments || []).length})</span>
+					<button class="ghost icon-btn" onclick="toggleComments(${videoData.id})">✕</button>
+				</div>
+				<div id="comments-${videoData.id}" class="comments-scroll">
+					${renderComments(videoData)}
+				</div>
+				<div class="comment-row">
+					<input id="c${videoData.id}" placeholder="Adicionar comentário...">
+					<button onclick="comment(${videoData.id})">Enviar</button>
+				</div>
 			</div>
 		</article>
 	`
@@ -383,13 +404,14 @@ function showLikeAnimation(wrapperEl) {
 
 function handleVideoDoubleClick(event, id) {
 	if (!currentUser) return
+	if (event.target.closest("button, input, .comments-panel")) return
 	showLikeAnimation(event.currentTarget)
 	toggleLike(id)
 }
 
 function renderVideoList(container, videos, options = {}) {
 	if (!videos.length) {
-		container.innerHTML = `<div class="video"><p class="muted">Ainda não há vídeos aqui.</p></div>`
+		container.innerHTML = `<p class="muted" style="padding:20px">Ainda não há vídeos aqui.</p>`
 		return
 	}
 
@@ -484,7 +506,7 @@ async function markView(id) {
 }
 
 function toggleComments(id) {
-	document.getElementById(`comments-${id}`).classList.toggle("hidden")
+	document.getElementById(`comments-panel-${id}`)?.classList.toggle("hidden")
 }
 
 async function comment(id) {
@@ -509,7 +531,7 @@ async function comment(id) {
 		})
 
 		document.getElementById(`comments-${id}`).innerHTML = renderComments(videoData)
-		document.getElementById(`comments-${id}`).classList.remove("hidden")
+		document.getElementById(`comments-panel-${id}`)?.classList.remove("hidden")
 		input.value = ""
 	} catch (error) {
 		alert(error.message)
@@ -529,7 +551,7 @@ async function deleteComment(id, commentId) {
 		})
 
 		document.getElementById(`comments-${id}`).innerHTML = renderComments(videoData)
-		document.getElementById(`comments-${id}`).classList.remove("hidden")
+		document.getElementById(`comments-panel-${id}`)?.classList.remove("hidden")
 
 		if (!profileSection.classList.contains("hidden")) {
 			loadProfile(currentProfileUsername || currentUser.username)

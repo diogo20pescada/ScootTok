@@ -29,55 +29,58 @@
 
 <section id="app" class="app-shell hidden">
 <header class="topbar">
-<div>
-<h1>🛴 ScootTok</h1>
-<p id="welcomeText" class="subtitle"></p>
+<h1 class="topbar-logo">🛴 ScootTok</h1>
+
+<div class="topbar-tabs">
+<button id="exploreBtn" class="tab active" onclick="loadVideos()">Explorar</button>
+<button id="followingBtn" class="tab" onclick="loadFollowing()">A seguir</button>
 </div>
 
 <div class="menu-area">
 <button class="ghost icon-btn" onclick="toggleMenu()">⋯</button>
 <div id="menuDropdown" class="menu-dropdown hidden">
+<p id="welcomeText" class="muted" style="padding:4px 8px;font-size:13px;pointer-events:none"></p>
 <button onclick="openCustomizeModal()">Personalizar</button>
 <button class="danger" onclick="logout()">Sair</button>
 </div>
 </div>
 </header>
 
-<section id="uploadCard" class="panel upload-panel hidden">
-<div class="section-header">
+<section id="uploadCard" class="hidden">
+<div class="upload-inner">
+<div class="upload-panel-header">
 <h2>Postar vídeo</h2>
-<button class="secondary" onclick="showFeedView()">Voltar ao feed</button>
+<button class="secondary" onclick="showFeedView()">← Voltar</button>
 </div>
+<div class="panel-card">
 <div class="form-grid">
 <input id="title" placeholder="Título do vídeo">
 <input id="desc" placeholder="Descrição (opcional)">
 <input type="file" id="video" accept="video/*">
 <div>
-<p class="muted" style="margin:0 0 6px;font-size:13px">Capa do vídeo (opcional — se não escolheres, usa o início do vídeo)</p>
+<p class="muted" style="margin:0 0 6px;font-size:13px">Capa do vídeo (opcional)</p>
 <input type="file" id="thumbnail" accept="image/*">
 </div>
 </div>
-<button onclick="upload()">Upload</button>
+<button onclick="upload()">Publicar vídeo</button>
+</div>
+</div>
 </section>
 
-<section id="feedSection" class="panel">
-<div class="section-header">
-<h2 id="sectionTitle">Explorar</h2>
-<div class="tabs">
-<button id="exploreBtn" class="tab active" onclick="loadVideos()">Explorar</button>
-<button id="followingBtn" class="tab" onclick="loadFollowing()">A seguir</button>
-</div>
-</div>
+<section id="feedSection">
+<h2 id="sectionTitle" class="hidden"></h2>
 <div id="feed" class="feed"></div>
 </section>
 
-<section id="profileSection" class="panel hidden">
-<div class="section-header">
+<section id="profileSection" class="hidden">
+<div class="profile-inner">
+<div class="panel-card">
+<div class="upload-panel-header">
 <h2 id="profileTitle">O teu perfil</h2>
-<button class="secondary" onclick="showFeedView()">Voltar ao feed</button>
+<button class="secondary" onclick="showFeedView()">← Voltar</button>
 </div>
 
-<div class="profile-card">
+<div class="profile-header-card">
 <button id="profileAvatarButton" class="avatar-shell" onclick="handleProfileAvatarClick()">
 <img id="profileAvatarLarge" class="avatar-img hidden" alt="Foto de perfil">
 <span id="profileAvatarFallbackLarge" class="avatar-fallback">👤</span>
@@ -87,11 +90,13 @@
 <h3 id="profileDisplayName"></h3>
 <p id="profileUsername" class="muted"></p>
 <p id="profileFollowers" class="muted"></p>
-<p id="profileHint" class="muted">Aqui aparecem todos os teus vídeos, views únicas e corações.</p>
+<p id="profileHint" class="muted" style="font-size:13px;margin-top:4px">Aqui aparecem todos os teus vídeos, views únicas e corações.</p>
+</div>
 </div>
 </div>
 
 <div id="profileVideos" class="feed"></div>
+</div>
 </section>
 
 <button id="profileFab" class="profile-fab" onclick="openProfileView()">
