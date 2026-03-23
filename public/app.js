@@ -23,6 +23,9 @@ const uploadCard = document.getElementById("uploadCard")
 const uploadFab = document.getElementById("uploadFab")
 const searchWrap = document.getElementById("searchWrap")
 const searchInput = document.getElementById("searchInput")
+const searchPreviewModal = document.getElementById("searchPreviewModal")
+const searchPreviewVideo = document.getElementById("searchPreviewVideo")
+const searchPreviewTitle = document.getElementById("searchPreviewTitle")
 
 function escapeHtml(text) {
 	return String(text || "")
@@ -475,6 +478,48 @@ function renderVideoCard(videoData, options = {}) {
 	`
 }
 
+function renderSearchResultCard(videoData) {
+	const ownerName = escapeHtml(videoData.owner?.displayName || videoData.user)
+	const title = escapeHtml(videoData.title || "Sem título")
+	const encodedTitle = encodeURIComponent(String(videoData.title || "Sem título"))
+	const thumb = videoData.thumbnail
+		? `<img class="search-thumb" src="/thumbnail/${videoData.id}" alt="Capa de ${title}">`
+		: `<div class="search-thumb-fallback">Sem capa</div>`
+
+	return `
+		<article class="search-card" onclick="openSearchPreview(${videoData.id}, '${encodedTitle}')">
+			${thumb}
+			<div class="search-card-meta">
+				<div class="search-card-title">${title}</div>
+				<div class="search-card-info">${ownerName} · 👁️ ${videoData.views || 0}</div>
+			</div>
+		</article>
+	`
+}
+
+function openSearchPreview(id, encodedTitle) {
+	if (!searchPreviewModal || !searchPreviewVideo || !searchPreviewTitle) {
+		return
+	}
+
+	const title = decodeURIComponent(encodedTitle || "")
+	searchPreviewTitle.textContent = title || "Preview"
+	searchPreviewVideo.src = `/media/${id}`
+	searchPreviewModal.classList.remove("hidden")
+	searchPreviewVideo.play().catch(() => {})
+}
+
+function closeSearchPreview() {
+	if (!searchPreviewModal || !searchPreviewVideo) {
+		return
+	}
+
+	searchPreviewVideo.pause()
+	searchPreviewVideo.removeAttribute("src")
+	searchPreviewVideo.load()
+	searchPreviewModal.classList.add("hidden")
+}
+
 let videoObserver = null
 
 function syncVideoSoundState() {
@@ -530,9 +575,24 @@ function handleVideoDoubleClick(event, id) {
 
 function renderVideoList(container, videos, options = {}) {
 	if (!videos.length) {
+		container.classList.remove("search-results-mode")
 		container.innerHTML = `<p class="muted" style="padding:20px">Ainda não há vídeos aqui.</p>`
 		return
 	}
+
+	const isSearchMode = Boolean(currentSearchQuery) && !options.profile
+	if (isSearchMode) {
+		const ordered = [...videos].sort((a, b) => (b.views || 0) - (a.views || 0) || ((b.createdAt || b.id || 0) - (a.createdAt || a.id || 0)))
+		container.classList.add("search-results-mode")
+		container.innerHTML = ordered.map(videoData => renderSearchResultCard(videoData)).join("")
+		container.scrollTo({ top: 0, behavior: "auto" })
+		if (videoObserver) {
+			videoObserver.disconnect()
+		}
+		return
+	}
+
+	container.classList.remove("search-results-mode")
 
 	container.innerHTML = videos.map(videoData => renderVideoCard(videoData, options)).join("")
 	container.scrollTo({ top: 0, behavior: "auto" })
@@ -759,6 +819,10 @@ document.addEventListener("click", event => {
 
 	if (event.target === customizeModal) {
 		closeCustomizeModal()
+	}
+
+	if (event.target === searchPreviewModal) {
+		closeSearchPreview()
 	}
 })
 

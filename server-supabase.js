@@ -567,7 +567,9 @@ app.get("/videos", async (req, res) => {
 
     const filtered = filterVideoRowsBySearch(data || [], searchTerm)
     const decorated = await Promise.all(filtered.map(video => decorateVideo(video, viewer)))
-    const ranked = pickVideosByProgressiveWindow(decorated)
+    const ranked = searchTerm
+      ? decorated.sort(sortByViewsThenRecent)
+      : pickVideosByProgressiveWindow(decorated)
     return res.json(ranked)
   } catch (error) {
     return res.status(500).json({ error: error.message || "Erro ao carregar vídeos" })
@@ -790,7 +792,8 @@ app.get("/following/:user", async (req, res) => {
 
     const filtered = filterVideoRowsBySearch(videos || [], searchTerm)
     const decorated = await Promise.all(filtered.map(video => decorateVideo(video, user)))
-    return res.json(decorated)
+    const ranked = searchTerm ? decorated.sort(sortByViewsThenRecent) : decorated
+    return res.json(ranked)
   } catch (error) {
     return res.status(500).json({ error: error.message || "Erro ao carregar seguidos" })
   }
