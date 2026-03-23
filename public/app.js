@@ -535,6 +535,7 @@ function renderVideoList(container, videos, options = {}) {
 	}
 
 	container.innerHTML = videos.map(videoData => renderVideoCard(videoData, options)).join("")
+	container.scrollTo({ top: 0, behavior: "auto" })
 	setupVideoAutoplay()
 }
 
@@ -750,6 +751,10 @@ async function saveProfile() {
 document.addEventListener("click", event => {
 	if (!event.target.closest(".menu-area")) {
 		closeMenu()
+	}
+
+	if (searchWrap && !event.target.closest("#searchWrap")) {
+		searchWrap.classList.remove("open")
 	}
 
 	if (event.target === customizeModal) {

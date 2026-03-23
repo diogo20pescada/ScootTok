@@ -15,6 +15,12 @@ body{
   font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   background:#000;
   color:#fff;
+  overflow-x:hidden;
+}
+
+html, body{
+  width:100%;
+  max-width:100%;
 }
 
 /* ── LOGIN ── */
@@ -53,6 +59,8 @@ body{
   overflow:hidden;
   background:#000;
   z-index:10;
+  width:100vw;
+  max-width:100vw;
 }
 
 /* ── TOPBAR (fixed, glass gradient) ── */
@@ -61,7 +69,7 @@ body{
   top:calc(var(--safe-top) + var(--ui-offset-top)); left:0; right:0;
   z-index:50;
   height:58px;
-  padding:0 16px;
+  padding:0 12px;
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -79,6 +87,8 @@ body{
   display:flex;
   align-items:center;
   gap:10px;
+  margin-left:auto;
+  flex-shrink:0;
 }
 
 .topbar-tabs{
@@ -88,6 +98,8 @@ body{
   border:1px solid rgba(255,255,255,.12);
   border-radius:999px;
   padding:4px;
+  flex-shrink:1;
+  min-width:0;
 }
 
 .tab{
@@ -121,7 +133,7 @@ body{
 }
 
 .search-wrap.open{
-  max-width:340px;
+  max-width:min(340px, 58vw);
   border-color:rgba(47,107,255,.55);
   padding-right:8px;
 }
@@ -154,7 +166,7 @@ body{
 }
 
 .search-wrap.open .search-input{
-  width:190px;
+  width:min(190px, 36vw);
   opacity:1;
 }
 
@@ -737,11 +749,29 @@ button.danger   { background:#e5484d; }
     --ui-offset-bottom: 20px;
   }
 
+  .topbar{
+    gap:8px;
+    padding:0 8px;
+  }
+
+  .topbar-logo{
+    display:none;
+  }
+
+  .topbar-tabs{
+    margin-right:auto;
+  }
+
+  .topbar-right{
+    gap:6px;
+  }
+
   .topbar-logo{ font-size:17px; }
   .tab{ padding:6px 12px; font-size:13px; }
-  .search-wrap{ max-width:88px; }
-  .search-wrap.open{ max-width:220px; }
-  .search-wrap.open .search-input{ width:110px; }
+  .search-wrap{ max-width:42px; padding:3px; }
+  .search-wrap.open{ max-width:160px; }
+  .search-wrap.open .search-input{ width:74px; }
+  .search-action-btn{ width:32px; height:32px; min-width:32px; }
   .overlay-title{ font-size:14px; }
   .creator-name{ font-size:14px; }
   .heart-overlay,.action-icon-btn,.stat-icon-btn{ width:46px; height:46px; }

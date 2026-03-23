@@ -356,8 +356,31 @@ function sortByViewsThenRecent(a, b) {
   return (b.createdAt || b.id || 0) - (a.createdAt || a.id || 0)
 }
 
+function getRecentViewCountByVideoIds(videoIds, cutoffTimestamp) {
+  if (!videoIds.length) {
+    return new Map()
+  }
+
+  const placeholders = videoIds.map(() => "?").join(",")
+  const rows = db.prepare(`
+    SELECT video_id, COUNT(*) AS count
+    FROM video_views
+    WHERE viewed_at >= ?
+      AND video_id IN (${placeholders})
+    GROUP BY video_id
+  `).all(cutoffTimestamp, ...videoIds)
+
+  const byVideo = new Map()
+  rows.forEach(row => {
+    byVideo.set(Number(row.video_id), Number(row.count) || 0)
+  })
+
+  return byVideo
+}
+
 function pickVideosByProgressiveWindow(videos) {
   const now = Date.now()
+  const videoIds = videos.map(video => Number(video.id)).filter(Boolean)
 
   if (!videos.length) {
     return videos
@@ -365,10 +388,24 @@ function pickVideosByProgressiveWindow(videos) {
 
   for (let hours = 5; hours <= 240; hours += 5) {
     const cutoff = now - (hours * 60 * 60 * 1000)
-    const candidates = videos.filter(video => (video.createdAt || video.id || 0) >= cutoff)
+    const recentViews = getRecentViewCountByVideoIds(videoIds, cutoff)
+    const candidates = videos
+      .map(video => ({
+        ...video,
+        recentViews: recentViews.get(Number(video.id)) || 0
+      }))
+      .filter(video => video.recentViews > 0)
+      .sort((a, b) => {
+        const recentDiff = (b.recentViews || 0) - (a.recentViews || 0)
+        if (recentDiff !== 0) {
+          return recentDiff
+        }
+
+        return sortByViewsThenRecent(a, b)
+      })
 
     if (candidates.length) {
-      return candidates.sort(sortByViewsThenRecent)
+      return candidates
     }
   }
 
