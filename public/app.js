@@ -1,8 +1,10 @@
 let currentUser = null
 let currentProfileUsername = null
 let currentFeedMode = "explore"
+let currentSearchQuery = ""
 const viewedVideos = new Set()
 let soundEnabled = localStorage.getItem("scoottokSound") === "1"
+let searchDebounceTimer = null
 
 const loginScreen = document.getElementById("login")
 const appScreen = document.getElementById("app")
@@ -19,6 +21,8 @@ const menuDropdown = document.getElementById("menuDropdown")
 const customizeModal = document.getElementById("customizeModal")
 const uploadCard = document.getElementById("uploadCard")
 const uploadFab = document.getElementById("uploadFab")
+const searchWrap = document.getElementById("searchWrap")
+const searchInput = document.getElementById("searchInput")
 
 function escapeHtml(text) {
 	return String(text || "")
@@ -218,9 +222,98 @@ function logout() {
 	uploadCard.classList.add("hidden")
 	currentProfileUsername = null
 	currentUser = null
+	currentSearchQuery = ""
+	if (searchInput) {
+		searchInput.value = ""
+	}
+	searchWrap?.classList.remove("open")
 	viewedVideos.clear()
 	localStorage.removeItem("scoottokUser")
 	showLogin()
+}
+
+function reloadCurrentFeed() {
+	if (currentFeedMode === "following") {
+		loadFollowing()
+		return
+	}
+
+	loadVideos()
+}
+
+function applySearch() {
+	if (!searchInput) {
+		return
+	}
+
+	const nextQuery = searchInput.value.trim()
+	if (nextQuery === currentSearchQuery) {
+		return
+	}
+
+	currentSearchQuery = nextQuery
+	reloadCurrentFeed()
+}
+
+function toggleSearch() {
+	if (!searchWrap || !searchInput) {
+		return
+	}
+
+	const opening = !searchWrap.classList.contains("open")
+	searchWrap.classList.toggle("open", opening)
+
+	if (opening) {
+		searchInput.focus()
+		return
+	}
+
+	if (!searchInput.value.trim() && currentSearchQuery) {
+		currentSearchQuery = ""
+		reloadCurrentFeed()
+	}
+}
+
+function clearSearch() {
+	if (!searchInput) {
+		return
+	}
+
+	searchInput.value = ""
+	if (!currentSearchQuery) {
+		searchInput.focus()
+		return
+	}
+
+	currentSearchQuery = ""
+	reloadCurrentFeed()
+	searchInput.focus()
+}
+
+function handleSearchKeydown(event) {
+	if (event.key === "Enter") {
+		event.preventDefault()
+		applySearch()
+	}
+}
+
+function handleSearchInput() {
+	if (!searchInput) {
+		return
+	}
+
+	const value = searchInput.value.trim()
+	clearTimeout(searchDebounceTimer)
+
+	if (!value && currentSearchQuery) {
+		currentSearchQuery = ""
+		reloadCurrentFeed()
+		return
+	}
+
+	searchDebounceTimer = setTimeout(() => {
+		applySearch()
+	}, 240)
 }
 
 async function upload() {
@@ -449,7 +542,8 @@ async function loadVideos() {
 	try {
 		setActiveTab("explore")
 		sectionTitle.textContent = "Explorar"
-		const videos = await api(`/videos?viewer=${encodeURIComponent(currentUser.username)}`)
+		const searchParam = currentSearchQuery ? `&q=${encodeURIComponent(currentSearchQuery)}` : ""
+		const videos = await api(`/videos?viewer=${encodeURIComponent(currentUser.username)}${searchParam}`)
 		renderVideoList(feed, videos)
 		showFeedView()
 	} catch (error) {
@@ -461,7 +555,8 @@ async function loadFollowing() {
 	try {
 		setActiveTab("following")
 		sectionTitle.textContent = "A seguir"
-		const videos = await api(`/following/${encodeURIComponent(currentUser.username)}`)
+		const searchParam = currentSearchQuery ? `?q=${encodeURIComponent(currentSearchQuery)}` : ""
+		const videos = await api(`/following/${encodeURIComponent(currentUser.username)}${searchParam}`)
 		renderVideoList(feed, videos)
 		showFeedView()
 	} catch (error) {

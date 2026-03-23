@@ -36,12 +36,20 @@
 <button id="followingBtn" class="tab" onclick="loadFollowing()">A seguir</button>
 </div>
 
+<div class="topbar-right">
+<div id="searchWrap" class="search-wrap">
+<button class="search-action-btn" onclick="toggleSearch()" aria-label="Pesquisar vídeos">🔍</button>
+<input id="searchInput" class="search-input" placeholder="Pesquisar vídeos, descrição ou creator" onkeydown="handleSearchKeydown(event)" oninput="handleSearchInput()">
+<button class="search-action-btn" onclick="clearSearch()" aria-label="Limpar pesquisa">✕</button>
+</div>
+
 <div class="menu-area">
 <button class="ghost icon-btn" onclick="toggleMenu()">⋯</button>
 <div id="menuDropdown" class="menu-dropdown hidden">
 <p id="welcomeText" class="muted" style="padding:4px 8px;font-size:13px;pointer-events:none"></p>
 <button onclick="openCustomizeModal()">Personalizar</button>
 <button class="danger" onclick="logout()">Sair</button>
+</div>
 </div>
 </div>
 </header>

@@ -71,6 +71,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS video_views (
     video_id INTEGER NOT NULL,
     username TEXT NOT NULL,
+    viewed_at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (video_id, username),
     FOREIGN KEY(video_id) REFERENCES videos(id) ON DELETE CASCADE,
     FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE
@@ -87,13 +88,19 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_username);
+  CREATE INDEX IF NOT EXISTS idx_videos_created_at ON videos(created_at);
   CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower);
   CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following);
+  CREATE INDEX IF NOT EXISTS idx_video_views_viewed_at ON video_views(viewed_at);
   CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id);
 `)
 
 try {
   db.exec(`ALTER TABLE videos ADD COLUMN thumbnail TEXT NOT NULL DEFAULT ''`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE video_views ADD COLUMN viewed_at INTEGER NOT NULL DEFAULT 0`)
 } catch (_) {}
 
 function getRowValue(row, key, fallback = 0) {
@@ -144,8 +151,8 @@ function migrateFromLegacyJsonIfNeeded() {
   `)
 
   const insertView = db.prepare(`
-    INSERT OR IGNORE INTO video_views (video_id, username)
-    VALUES (@video_id, @username)
+    INSERT OR IGNORE INTO video_views (video_id, username, viewed_at)
+    VALUES (@video_id, @username, @viewed_at)
   `)
 
   const insertComment = db.prepare(`
@@ -209,7 +216,7 @@ function migrateFromLegacyJsonIfNeeded() {
           return
         }
 
-        insertView.run({ video_id: videoId, username: cleanUsername })
+        insertView.run({ video_id: videoId, username: cleanUsername, viewed_at: videoId })
       })
 
       const comments = Array.isArray(video.comments) ? video.comments : []
@@ -299,6 +306,7 @@ function decorateVideo(video, viewer) {
 
   return {
     id: video.id,
+    createdAt: video.created_at || video.id,
     user: video.user_username,
     title: video.title,
     desc: video.description,
@@ -321,6 +329,50 @@ function decorateVideo(video, viewer) {
     viewed,
     followed
   }
+}
+
+function textIncludes(value, searchTerm) {
+  return String(value || "").toLowerCase().includes(searchTerm)
+}
+
+function filterVideosBySearch(videos, searchTerm) {
+  if (!searchTerm) {
+    return videos
+  }
+
+  return videos.filter(video => (
+    textIncludes(video.title, searchTerm)
+    || textIncludes(video.description, searchTerm)
+    || textIncludes(video.user_username, searchTerm)
+  ))
+}
+
+function sortByViewsThenRecent(a, b) {
+  const viewsDiff = (b.views || 0) - (a.views || 0)
+  if (viewsDiff !== 0) {
+    return viewsDiff
+  }
+
+  return (b.createdAt || b.id || 0) - (a.createdAt || a.id || 0)
+}
+
+function pickVideosByProgressiveWindow(videos) {
+  const now = Date.now()
+
+  if (!videos.length) {
+    return videos
+  }
+
+  for (let hours = 5; hours <= 240; hours += 5) {
+    const cutoff = now - (hours * 60 * 60 * 1000)
+    const candidates = videos.filter(video => (video.createdAt || video.id || 0) >= cutoff)
+
+    if (candidates.length) {
+      return candidates.sort(sortByViewsThenRecent)
+    }
+  }
+
+  return videos.sort(sortByViewsThenRecent)
 }
 
 migrateFromLegacyJsonIfNeeded()
@@ -478,8 +530,12 @@ app.get("/thumbnail/:id", (req, res) => {
 
 app.get("/videos", (req, res) => {
   const viewer = req.query.viewer ? String(req.query.viewer) : ""
-  const videos = db.prepare("SELECT * FROM videos ORDER BY id DESC").all().map(video => decorateVideo(video, viewer))
-  return res.json(videos)
+  const searchTerm = String(req.query.q || "").trim().toLowerCase()
+  const allVideos = db.prepare("SELECT * FROM videos ORDER BY created_at DESC").all()
+  const filtered = filterVideosBySearch(allVideos, searchTerm)
+  const decorated = filtered.map(video => decorateVideo(video, viewer))
+  const ranked = pickVideosByProgressiveWindow(decorated)
+  return res.json(ranked)
 })
 
 app.post("/view", (req, res) => {
@@ -498,7 +554,11 @@ app.post("/view", (req, res) => {
     return res.status(404).json({ error: "Utilizador não encontrado" })
   }
 
-  db.prepare("INSERT OR IGNORE INTO video_views (video_id, username) VALUES (?, ?)").run(video.id, String(user))
+  db.prepare(`
+    INSERT INTO video_views (video_id, username, viewed_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(video_id, username) DO UPDATE SET viewed_at = excluded.viewed_at
+  `).run(video.id, String(user), Date.now())
   return res.json(decorateVideo(video, String(user)))
 })
 
@@ -622,16 +682,18 @@ app.post("/unfollow", (req, res) => {
 
 app.get("/following/:user", (req, res) => {
   const user = String(req.params.user || "")
+  const searchTerm = String(req.query.q || "").trim().toLowerCase()
 
   const videos = db.prepare(`
     SELECT v.*
     FROM videos v
     INNER JOIN follows f ON f.following = v.user_username
     WHERE f.follower = ?
-    ORDER BY v.id DESC
+    ORDER BY v.created_at DESC
   `).all(user)
 
-  return res.json(videos.map(video => decorateVideo(video, user)))
+  const filtered = filterVideosBySearch(videos, searchTerm)
+  return res.json(filtered.map(video => decorateVideo(video, user)))
 })
 
 app.get("/profile/:username", (req, res) => {

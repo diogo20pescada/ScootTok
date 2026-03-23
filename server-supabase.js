@@ -145,6 +145,7 @@ async function decorateVideo(video, viewer) {
 
   return {
     id: video.id,
+    createdAt: video.created_at || video.id,
     user: video.user_username,
     title: video.title,
     desc: video.description || "",
@@ -166,6 +167,49 @@ async function decorateVideo(video, viewer) {
     viewed,
     followed
   }
+}
+
+function textIncludes(value, searchTerm) {
+  return String(value || "").toLowerCase().includes(searchTerm)
+}
+
+function filterVideoRowsBySearch(videos, searchTerm) {
+  if (!searchTerm) {
+    return videos
+  }
+
+  return videos.filter(video => (
+    textIncludes(video.title, searchTerm)
+    || textIncludes(video.description, searchTerm)
+    || textIncludes(video.user_username, searchTerm)
+  ))
+}
+
+function sortByViewsThenRecent(a, b) {
+  const viewsDiff = (b.views || 0) - (a.views || 0)
+  if (viewsDiff !== 0) {
+    return viewsDiff
+  }
+
+  return (b.createdAt || b.id || 0) - (a.createdAt || a.id || 0)
+}
+
+function pickVideosByProgressiveWindow(videos) {
+  if (!videos.length) {
+    return videos
+  }
+
+  const now = Date.now()
+
+  for (let hours = 5; hours <= 240; hours += 5) {
+    const cutoff = now - (hours * 60 * 60 * 1000)
+    const candidates = videos.filter(video => (video.createdAt || video.id || 0) >= cutoff)
+    if (candidates.length) {
+      return candidates.sort(sortByViewsThenRecent)
+    }
+  }
+
+  return videos.sort(sortByViewsThenRecent)
 }
 
 function parseLegacyComment(comment, videoId, index) {
@@ -514,14 +558,17 @@ app.get("/media/:id", async (req, res) => {
 app.get("/videos", async (req, res) => {
   try {
     const viewer = req.query.viewer ? String(req.query.viewer) : ""
-    const { data, error } = await supabase.from("videos").select("*").order("id", { ascending: false })
+    const searchTerm = String(req.query.q || "").trim().toLowerCase()
+    const { data, error } = await supabase.from("videos").select("*").order("created_at", { ascending: false })
 
     if (error) {
       throw error
     }
 
-    const videos = await Promise.all((data || []).map(video => decorateVideo(video, viewer)))
-    return res.json(videos)
+    const filtered = filterVideoRowsBySearch(data || [], searchTerm)
+    const decorated = await Promise.all(filtered.map(video => decorateVideo(video, viewer)))
+    const ranked = pickVideosByProgressiveWindow(decorated)
+    return res.json(ranked)
   } catch (error) {
     return res.status(500).json({ error: error.message || "Erro ao carregar vídeos" })
   }
@@ -716,6 +763,7 @@ app.post("/unfollow", async (req, res) => {
 app.get("/following/:user", async (req, res) => {
   try {
     const user = String(req.params.user || "")
+    const searchTerm = String(req.query.q || "").trim().toLowerCase()
     const { data: followRows, error: followError } = await supabase
       .from("follows")
       .select("following")
@@ -734,13 +782,14 @@ app.get("/following/:user", async (req, res) => {
       .from("videos")
       .select("*")
       .in("user_username", following)
-      .order("id", { ascending: false })
+      .order("created_at", { ascending: false })
 
     if (videosError) {
       throw videosError
     }
 
-    const decorated = await Promise.all((videos || []).map(video => decorateVideo(video, user)))
+    const filtered = filterVideoRowsBySearch(videos || [], searchTerm)
+    const decorated = await Promise.all(filtered.map(video => decorateVideo(video, user)))
     return res.json(decorated)
   } catch (error) {
     return res.status(500).json({ error: error.message || "Erro ao carregar seguidos" })
