@@ -757,6 +757,39 @@ html, body{
 /* ── FORMS ── */
 .form-grid{ display:grid; gap:12px; margin:18px 0; }
 
+.upload-wizard-steps{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:8px;
+}
+
+.wizard-step-chip{
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.06);
+  color:rgba(255,255,255,.72);
+  padding:7px 11px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+}
+
+.wizard-step-chip.active{
+  background:rgba(47,107,255,.34);
+  border-color:rgba(47,107,255,.7);
+  color:#fff;
+}
+
+.upload-wizard-actions{
+  display:flex;
+  gap:10px;
+  margin-top:6px;
+}
+
+.upload-wizard-actions button{
+  flex:1;
+}
+
 input{
   width:100%;
   padding:13px 16px;

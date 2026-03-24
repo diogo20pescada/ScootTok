@@ -68,10 +68,26 @@
 <button class="secondary" onclick="showFeedView()">← Voltar</button>
 </div>
 <div class="panel-card">
-<div class="form-grid">
+<div class="upload-wizard-steps" id="uploadWizardSteps">
+<button type="button" class="wizard-step-chip active" data-step-chip="1">1. Upload</button>
+<button type="button" class="wizard-step-chip" data-step-chip="2">2. Título</button>
+<button type="button" class="wizard-step-chip" data-step-chip="3">3. Direitos</button>
+</div>
+
+<div class="form-grid upload-step" data-upload-step="1">
+<input type="file" id="video" accept="video/*">
+<div>
+<p class="muted" style="margin:0 0 6px;font-size:13px">Capa do vídeo (opcional)</p>
+<input type="file" id="thumbnail" accept="image/*">
+</div>
+</div>
+
+<div class="form-grid upload-step hidden" data-upload-step="2">
 <input id="title" placeholder="Título do vídeo">
 <input id="desc" placeholder="Descrição (opcional)">
-<input type="file" id="video" accept="video/*">
+</div>
+
+<div class="form-grid upload-step hidden" data-upload-step="3">
 <div>
 <p class="muted" style="margin:0 0 6px;font-size:13px">Direitos da música</p>
 <select id="musicLicense">
@@ -83,10 +99,6 @@
 </select>
 </div>
 <input id="musicLicenseProof" placeholder="Prova de licença da música (URL, contrato ou referência)">
-<div>
-<p class="muted" style="margin:0 0 6px;font-size:13px">Capa do vídeo (opcional)</p>
-<input type="file" id="thumbnail" accept="image/*">
-</div>
 <div>
 <p class="muted" style="margin:0 0 6px;font-size:13px">Direitos da imagem/capa</p>
 <select id="imageLicense">
@@ -103,7 +115,12 @@
 Declaro que tenho direitos legais para usar música, imagem e vídeo enviados.
 </label>
 </div>
-<button id="uploadButton" onclick="upload()">Publicar vídeo</button>
+
+<div class="upload-wizard-actions">
+<button id="uploadPrevButton" class="secondary hidden" onclick="previousUploadStep()">Anterior</button>
+<button id="uploadNextButton" onclick="nextUploadStep()">Seguinte</button>
+<button id="uploadButton" class="hidden" onclick="upload()">Postar vídeo</button>
+</div>
 <p id="uploadAnalysisStatus" class="muted" style="margin-top:10px;font-size:13px;min-height:20px"></p>
 </div>
 </div>

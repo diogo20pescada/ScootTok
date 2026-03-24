@@ -31,9 +31,12 @@ const videoEditTitleInput = document.getElementById("videoEditTitleInput")
 const videoEditDescInput = document.getElementById("videoEditDescInput")
 const videoEditThumbnailInput = document.getElementById("videoEditThumbnailInput")
 const uploadButton = document.getElementById("uploadButton")
+const uploadPrevButton = document.getElementById("uploadPrevButton")
+const uploadNextButton = document.getElementById("uploadNextButton")
 const uploadAnalysisStatus = document.getElementById("uploadAnalysisStatus")
 const API_BASE_URL = String(window.SCOOTTOK_API_BASE_URL || "").trim().replace(/\/$/, "")
 let editingVideoId = null
+let currentUploadStep = 1
 
 function toAppUrl(pathname) {
 	if (!pathname.startsWith("/")) {
@@ -176,7 +179,90 @@ function openUploadView() {
 	feedSection.classList.add("hidden")
 	uploadCard.classList.remove("hidden")
 	uploadFab.classList.add("hidden")
+	setUploadStep(1)
 	uploadCard.scrollIntoView({ behavior: "smooth", block: "start" })
+}
+
+function validateUploadStep(step) {
+	if (step === 1) {
+		const videoFile = document.getElementById("video").files[0]
+		if (!videoFile) {
+			alert("Escolhe um vídeo")
+			return false
+		}
+	}
+
+	if (step === 2) {
+		const title = document.getElementById("title").value.trim()
+		if (!title) {
+			alert("Título obrigatório")
+			return false
+		}
+	}
+
+	if (step === 3) {
+		const musicLicense = document.getElementById("musicLicense").value
+		const imageLicense = document.getElementById("imageLicense").value
+		const musicLicenseProof = document.getElementById("musicLicenseProof").value.trim()
+		const imageLicenseProof = document.getElementById("imageLicenseProof").value.trim()
+		const rightsDeclaration = Boolean(document.getElementById("rightsDeclaration")?.checked)
+
+		if (!musicLicense) {
+			alert("Seleciona os direitos da música")
+			return false
+		}
+
+		if (!imageLicense) {
+			alert("Seleciona os direitos da imagem/capa")
+			return false
+		}
+
+		if ((musicLicense === "creative-commons" || musicLicense === "licensed") && !musicLicenseProof) {
+			alert("Adiciona prova de licença da música")
+			return false
+		}
+
+		if ((imageLicense === "creative-commons" || imageLicense === "licensed") && !imageLicenseProof) {
+			alert("Adiciona prova de licença da imagem/capa")
+			return false
+		}
+
+		if (!rightsDeclaration) {
+			alert("Tens de confirmar a declaração de direitos")
+			return false
+		}
+	}
+
+	return true
+}
+
+function setUploadStep(step) {
+	currentUploadStep = Math.max(1, Math.min(3, Number(step) || 1))
+	document.querySelectorAll("[data-upload-step]").forEach(section => {
+		const sectionStep = Number(section.getAttribute("data-upload-step"))
+		section.classList.toggle("hidden", sectionStep !== currentUploadStep)
+	})
+
+	document.querySelectorAll("[data-step-chip]").forEach(chip => {
+		const chipStep = Number(chip.getAttribute("data-step-chip"))
+		chip.classList.toggle("active", chipStep === currentUploadStep)
+	})
+
+	uploadPrevButton?.classList.toggle("hidden", currentUploadStep === 1)
+	uploadNextButton?.classList.toggle("hidden", currentUploadStep === 3)
+	uploadButton?.classList.toggle("hidden", currentUploadStep !== 3)
+}
+
+function nextUploadStep() {
+	if (!validateUploadStep(currentUploadStep)) {
+		return
+	}
+
+	setUploadStep(currentUploadStep + 1)
+}
+
+function previousUploadStep() {
+	setUploadStep(currentUploadStep - 1)
 }
 
 function fileToBase64(file) {
@@ -337,6 +423,10 @@ function handleSearchInput() {
 }
 
 async function upload() {
+	if (!validateUploadStep(3)) {
+		return
+	}
+
 	const videoFile = document.getElementById("video").files[0]
 	const thumbnailFile = document.getElementById("thumbnail").files[0]
 	const title = document.getElementById("title").value.trim()
@@ -346,41 +436,6 @@ async function upload() {
 	const musicLicenseProof = document.getElementById("musicLicenseProof").value.trim()
 	const imageLicenseProof = document.getElementById("imageLicenseProof").value.trim()
 	const rightsDeclaration = Boolean(document.getElementById("rightsDeclaration")?.checked)
-
-	if (!videoFile) {
-		alert("Escolhe um vídeo")
-		return
-	}
-
-	if (!title) {
-		alert("Título obrigatório")
-		return
-	}
-
-	if (!musicLicense) {
-		alert("Seleciona os direitos da música")
-		return
-	}
-
-	if (!imageLicense) {
-		alert("Seleciona os direitos da imagem/capa")
-		return
-	}
-
-	if ((musicLicense === "creative-commons" || musicLicense === "licensed") && !musicLicenseProof) {
-		alert("Adiciona prova de licença da música")
-		return
-	}
-
-	if ((imageLicense === "creative-commons" || imageLicense === "licensed") && !imageLicenseProof) {
-		alert("Adiciona prova de licença da imagem/capa")
-		return
-	}
-
-	if (!rightsDeclaration) {
-		alert("Tens de confirmar a declaração de direitos")
-		return
-	}
 
 	const form = new FormData()
 	form.append("video", videoFile)
@@ -418,6 +473,7 @@ async function upload() {
 		document.getElementById("musicLicenseProof").value = ""
 		document.getElementById("imageLicenseProof").value = ""
 		document.getElementById("rightsDeclaration").checked = false
+		setUploadStep(1)
 		if (uploadResult?.pendingModeration) {
 			alert(uploadResult.moderationMessage || "Vídeo enviado para moderação antes de aparecer no feed.")
 		}
@@ -437,7 +493,7 @@ async function upload() {
 	} finally {
 		if (uploadButton) {
 			uploadButton.disabled = false
-			uploadButton.textContent = "Publicar vídeo"
+			uploadButton.textContent = "Postar vídeo"
 		}
 	}
 }
