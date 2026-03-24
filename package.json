@@ -19,9 +19,11 @@
     "@capacitor/core": "^6.2.0",
     "@capacitor/ios": "^6.2.0",
     "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
     "express": "^4.19.2",
-    "multer": "1.4.5-lts.1",
-    "cors": "^2.8.5"
+    "express-rate-limit": "^8.3.1",
+    "helmet": "^8.1.0",
+    "multer": "1.4.5-lts.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.0"

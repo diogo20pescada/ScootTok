@@ -3,6 +3,9 @@ const multer = require("multer")
 const fs = require("fs")
 const cors = require("cors")
 const path = require("path")
+const crypto = require("crypto")
+const helmet = require("helmet")
+const rateLimit = require("express-rate-limit")
 const Database = require("better-sqlite3")
 
 const app = express()
@@ -19,6 +22,7 @@ const LEGACY_DB_JSON_PATH = process.env.LEGACY_DB_JSON_PATH
 const SQLITE_PATH = process.env.DATABASE_PATH
   ? path.resolve(process.env.DATABASE_PATH)
   : path.join(DATA_DIR, "scoottok.db")
+const MODERATOR_USERS = String(process.env.MODERATOR_USERS || "").split(",").map(item => item.trim()).filter(Boolean)
 
 if (!fs.existsSync(path.dirname(SQLITE_PATH))) {
   fs.mkdirSync(path.dirname(SQLITE_PATH), { recursive: true })
@@ -51,8 +55,42 @@ db.exec(`
     file_name TEXT NOT NULL,
     mimetype TEXT NOT NULL DEFAULT '',
     thumbnail TEXT NOT NULL DEFAULT '',
+    video_hash TEXT NOT NULL DEFAULT '',
+    music_license TEXT NOT NULL DEFAULT '',
+    image_license TEXT NOT NULL DEFAULT '',
+    music_license_proof TEXT NOT NULL DEFAULT '',
+    image_license_proof TEXT NOT NULL DEFAULT '',
+    rights_declaration INTEGER NOT NULL DEFAULT 0,
+    moderation_status TEXT NOT NULL DEFAULT 'approved',
+    moderation_reason TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     FOREIGN KEY(user_username) REFERENCES users(username) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS compliance_audit (
+    id INTEGER PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    user_username TEXT NOT NULL DEFAULT '',
+    video_id INTEGER,
+    severity TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS takedown_requests (
+    id INTEGER PRIMARY KEY,
+    reporter_email TEXT NOT NULL,
+    claimant_name TEXT NOT NULL,
+    video_id INTEGER,
+    target_username TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL,
+    evidence_url TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open',
+    resolution_note TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER NOT NULL DEFAULT 0,
+    resolved_by TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS follows (
@@ -92,6 +130,10 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_username);
   CREATE INDEX IF NOT EXISTS idx_videos_created_at ON videos(created_at);
+  CREATE INDEX IF NOT EXISTS idx_videos_hash ON videos(video_hash);
+  CREATE INDEX IF NOT EXISTS idx_videos_moderation_status ON videos(moderation_status);
+  CREATE INDEX IF NOT EXISTS idx_compliance_audit_created_at ON compliance_audit(created_at);
+  CREATE INDEX IF NOT EXISTS idx_takedown_status ON takedown_requests(status);
   CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower);
   CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following);
   CREATE INDEX IF NOT EXISTS idx_video_views_viewed_at ON video_views(viewed_at);
@@ -110,6 +152,114 @@ try {
   db.exec(`ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0`)
 } catch (_) {}
 
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN video_hash TEXT NOT NULL DEFAULT ''`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN moderation_status TEXT NOT NULL DEFAULT 'approved'`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN moderation_reason TEXT NOT NULL DEFAULT ''`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN music_license TEXT NOT NULL DEFAULT ''`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN image_license TEXT NOT NULL DEFAULT ''`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN music_license_proof TEXT NOT NULL DEFAULT ''`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN image_license_proof TEXT NOT NULL DEFAULT ''`)
+} catch (_) {}
+
+try {
+  db.exec(`ALTER TABLE videos ADD COLUMN rights_declaration INTEGER NOT NULL DEFAULT 0`)
+} catch (_) {}
+
+const REQUIRED_SCOOTER_KEYWORDS = [
+  "trotinete",
+  "scooter",
+  "scooter eletrica",
+  "scooter elétrica",
+  "e-scooter",
+  "patinete"
+]
+
+const BLOCKED_COPY_KEYWORDS = [
+  "tiktok",
+  "youtube",
+  "instagram",
+  "reels",
+  "shorts",
+  "copiado"
+]
+
+const BLOCKED_CONTENT_KEYWORDS = [
+  "porno",
+  "porn",
+  "nude",
+  "nudity",
+  "gore",
+  "violencia extrema",
+  "violência extrema"
+]
+
+const MODERATION_PENDING_REASON = "Aguarda revisão: confirmar presença de trotinete elétrica no vídeo"
+const ALLOWED_MUSIC_LICENSES = new Set(["original", "creative-commons", "licensed", "no-audio"])
+const ALLOWED_IMAGE_LICENSES = new Set(["original", "creative-commons", "licensed", "none"])
+const PROOF_REQUIRED_LICENSES = new Set(["creative-commons", "licensed"])
+const COPYRIGHT_RISK_TERMS = [
+  "download",
+  "reupload",
+  "rip",
+  "sem creditos",
+  "sem créditos",
+  "copyright",
+  "tiktok",
+  "youtube",
+  "instagram"
+]
+
+function isApprovedVideo(video) {
+  return String(video?.moderation_status || "").toLowerCase() === "approved"
+}
+
+function isModerator(username) {
+  return MODERATOR_USERS.includes(String(username || "").trim())
+}
+
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value || {})
+  } catch (_) {
+    return "{}"
+  }
+}
+
+function logComplianceEvent({ eventType, userUsername = "", videoId = null, severity = "info", message, details = {} }) {
+  db.prepare(`
+    INSERT INTO compliance_audit (id, event_type, user_username, video_id, severity, message, details_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    Date.now() + Math.floor(Math.random() * 1000),
+    String(eventType || "compliance-event"),
+    String(userUsername || ""),
+    videoId === null || videoId === undefined ? null : Number(videoId),
+    String(severity || "info"),
+    String(message || ""),
+    safeJsonStringify(details),
+    Date.now()
+  )
+}
+
 function getRowValue(row, key, fallback = 0) {
   if (!row) {
     return fallback
@@ -117,6 +267,275 @@ function getRowValue(row, key, fallback = 0) {
 
   const value = row[key]
   return typeof value === "number" ? value : fallback
+}
+
+function normalizeModerationText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+}
+
+function includesAnyKeyword(text, keywords) {
+  const normalizedText = normalizeModerationText(text)
+  return keywords.some(keyword => normalizedText.includes(normalizeModerationText(keyword)))
+}
+
+function tokenizeText(value) {
+  return normalizeModerationText(value)
+    .split(/[^a-z0-9]+/)
+    .filter(token => token.length > 2)
+}
+
+function jaccardSimilarity(aText, bText) {
+  const aSet = new Set(tokenizeText(aText))
+  const bSet = new Set(tokenizeText(bText))
+
+  if (!aSet.size || !bSet.size) {
+    return 0
+  }
+
+  let intersection = 0
+  for (const token of aSet) {
+    if (bSet.has(token)) {
+      intersection += 1
+    }
+  }
+
+  const union = new Set([...aSet, ...bSet]).size
+  return union ? intersection / union : 0
+}
+
+function normalizeLicenseValue(value) {
+  return String(value || "").trim().toLowerCase()
+}
+
+function isValidProofValue(value) {
+  const text = String(value || "").trim()
+  if (!text) {
+    return false
+  }
+
+  if (text.length >= 8) {
+    return true
+  }
+
+  return /^https?:\/\//i.test(text)
+}
+
+function analyzePotentialMetadataPlagiarism({ title, desc }) {
+  const sourceText = `${title || ""} ${desc || ""}`.trim()
+  if (!sourceText) {
+    return { score: 0, suspectedVideoId: null }
+  }
+
+  const candidateVideos = db
+    .prepare("SELECT id, title, description FROM videos ORDER BY created_at DESC LIMIT 500")
+    .all()
+
+  let bestScore = 0
+  let suspectedVideoId = null
+
+  candidateVideos.forEach(video => {
+    const candidateText = `${video.title || ""} ${video.description || ""}`.trim()
+    const score = jaccardSimilarity(sourceText, candidateText)
+    if (score > bestScore) {
+      bestScore = score
+      suspectedVideoId = video.id
+    }
+  })
+
+  return {
+    score: Number(bestScore.toFixed(3)),
+    suspectedVideoId
+  }
+}
+
+function runLocalAiComplianceAnalysis({
+  title,
+  desc,
+  originalFileName,
+  musicLicense,
+  imageLicense,
+  musicLicenseProof,
+  imageLicenseProof,
+  rightsDeclaration,
+  videoHash
+}) {
+  const decisions = []
+  const warnings = []
+  const rawText = `${title || ""} ${desc || ""} ${originalFileName || ""}`
+
+  const normalizedMusicLicense = normalizeLicenseValue(musicLicense)
+  const normalizedImageLicense = normalizeLicenseValue(imageLicense)
+
+  if (!ALLOWED_MUSIC_LICENSES.has(normalizedMusicLicense)) {
+    decisions.push("Direitos de música inválidos ou não declarados")
+  }
+
+  if (!ALLOWED_IMAGE_LICENSES.has(normalizedImageLicense)) {
+    decisions.push("Direitos de imagem/capa inválidos ou não declarados")
+  }
+
+  if (PROOF_REQUIRED_LICENSES.has(normalizedMusicLicense) && !isValidProofValue(musicLicenseProof)) {
+    decisions.push("Falta prova válida de licença de música")
+  }
+
+  if (PROOF_REQUIRED_LICENSES.has(normalizedImageLicense) && !isValidProofValue(imageLicenseProof)) {
+    decisions.push("Falta prova válida de licença de imagem/capa")
+  }
+
+  if (!rightsDeclaration) {
+    decisions.push("Declaração de direitos não confirmada")
+  }
+
+  if (includesAnyKeyword(rawText, COPYRIGHT_RISK_TERMS)) {
+    warnings.push("Termos com risco de direitos autorais detetados")
+  }
+
+  if (!includesAnyKeyword(rawText, REQUIRED_SCOOTER_KEYWORDS)) {
+    warnings.push("IA não encontrou indicação clara de trotinete nos metadados")
+  }
+
+  const plagiarism = analyzePotentialMetadataPlagiarism({ title, desc })
+  if (plagiarism.score >= 0.82) {
+    decisions.push(`Risco elevado de plágio textual (${plagiarism.score})`)
+  } else if (plagiarism.score >= 0.65) {
+    warnings.push(`Similaridade textual moderada (${plagiarism.score})`)
+  }
+
+  const baseModeration = moderateVideoMetadata({
+    title,
+    desc,
+    fileName: originalFileName,
+    videoHash
+  })
+
+  if (!baseModeration.ok) {
+    decisions.push(baseModeration.error)
+  }
+
+  const severity = decisions.length ? "high" : warnings.length ? "medium" : "low"
+  const approvedForPendingQueue = decisions.length === 0
+  const summary = approvedForPendingQueue
+    ? "Análise concluída: vídeo enviado para revisão manual."
+    : "Análise concluiu risco alto: upload bloqueado."
+
+  return {
+    summary,
+    severity,
+    approvedForPendingQueue,
+    decisions,
+    warnings,
+    rightsDeclaration: Boolean(rightsDeclaration),
+    plagiarismScore: plagiarism.score,
+    suspectedVideoId: plagiarism.suspectedVideoId,
+    violationType: baseModeration.violationType || "none"
+  }
+}
+
+function computeFileSha256(filePath) {
+  const buffer = fs.readFileSync(filePath)
+  return crypto.createHash("sha256").update(buffer).digest("hex")
+}
+
+function moderateVideoMetadata({ title, desc, fileName, videoHash }) {
+  const contextText = `${title || ""} ${desc || ""} ${fileName || ""}`
+
+  if (includesAnyKeyword(contextText, BLOCKED_CONTENT_KEYWORDS)) {
+    return {
+      ok: false,
+      error: "Conteúdo rejeitado por palavras de conteúdo indesejado",
+      violationType: "blocked-content"
+    }
+  }
+
+  if (includesAnyKeyword(contextText, BLOCKED_COPY_KEYWORDS)) {
+    return {
+      ok: false,
+      error: "Conteúdo rejeitado por referência a plataforma externa/cópia",
+      violationType: "external-copy"
+    }
+  }
+
+  if (videoHash) {
+    const duplicateVideo = db
+      .prepare("SELECT id FROM videos WHERE video_hash = ? LIMIT 1")
+      .get(videoHash)
+
+    if (duplicateVideo) {
+      return {
+        ok: false,
+        error: "Vídeo duplicado detetado (hash idêntico)",
+        violationType: "duplicate"
+      }
+    }
+  }
+
+  return { ok: true, violationType: "none" }
+}
+
+function deleteUploadAsset(fileName) {
+  const safeName = String(fileName || "").trim()
+  if (!safeName) {
+    return
+  }
+
+  const uploadsRoot = path.resolve(UPLOADS_DIR)
+  const filePath = path.resolve(uploadsRoot, safeName)
+
+  if (!filePath.startsWith(uploadsRoot + path.sep)) {
+    return
+  }
+
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath)
+    } catch (_) {}
+  }
+}
+
+function banUserAndPurgeContent(username, reason) {
+  const cleanUsername = String(username || "").trim()
+  if (!cleanUsername) {
+    return { banned: false, removedVideos: 0 }
+  }
+
+  const user = getUserByUsername(cleanUsername)
+  if (!user) {
+    return { banned: false, removedVideos: 0 }
+  }
+
+  const videos = db
+    .prepare("SELECT id, file_name, thumbnail FROM videos WHERE user_username = ?")
+    .all(cleanUsername)
+
+  videos.forEach(video => {
+    deleteUploadAsset(video.file_name)
+    deleteUploadAsset(video.thumbnail)
+  })
+
+  db.prepare("DELETE FROM users WHERE username = ?").run(cleanUsername)
+  persistLegacyJsonSnapshot()
+
+  console.warn(`Utilizador banido: ${cleanUsername}. Motivo: ${String(reason || "não especificado")}`)
+  return { banned: true, removedVideos: videos.length }
+}
+
+function purgeAllVideosAndRelations() {
+  const videos = db.prepare("SELECT id, file_name, thumbnail FROM videos").all()
+  videos.forEach(video => {
+    deleteUploadAsset(video.file_name)
+    deleteUploadAsset(video.thumbnail)
+  })
+
+  db.prepare("DELETE FROM comments").run()
+  db.prepare("DELETE FROM video_likes").run()
+  db.prepare("DELETE FROM video_views").run()
+  db.prepare("DELETE FROM videos").run()
+  persistLegacyJsonSnapshot()
+
+  return { removedVideos: videos.length }
 }
 
 function extensionFromImageMime(mimeType) {
@@ -175,8 +594,8 @@ function migrateFromLegacyJsonIfNeeded() {
   `)
 
   const insertVideo = db.prepare(`
-    INSERT OR IGNORE INTO videos (id, user_username, title, description, file_name, mimetype, thumbnail, created_at)
-    VALUES (@id, @user_username, @title, @description, @file_name, @mimetype, @thumbnail, @created_at)
+    INSERT OR IGNORE INTO videos (id, user_username, title, description, file_name, mimetype, thumbnail, video_hash, music_license, image_license, music_license_proof, image_license_proof, rights_declaration, moderation_status, moderation_reason, created_at)
+    VALUES (@id, @user_username, @title, @description, @file_name, @mimetype, @thumbnail, @video_hash, @music_license, @image_license, @music_license_proof, @image_license_proof, @rights_declaration, @moderation_status, @moderation_reason, @created_at)
   `)
 
   const insertFollow = db.prepare(`
@@ -237,6 +656,14 @@ function migrateFromLegacyJsonIfNeeded() {
         file_name: String(video.file || ""),
         mimetype: String(video.mimetype || ""),
         thumbnail: String(video.thumbnail || ""),
+        video_hash: String(video.videoHash || ""),
+        music_license: String(video.musicLicense || ""),
+        image_license: String(video.imageLicense || ""),
+        music_license_proof: String(video.musicLicenseProof || ""),
+        image_license_proof: String(video.imageLicenseProof || ""),
+        rights_declaration: Number(video.rightsDeclaration) ? 1 : 0,
+        moderation_status: String(video.moderationStatus || "approved"),
+        moderation_reason: String(video.moderationReason || ""),
         created_at: Number(video.createdAt) || videoId
       })
 
@@ -335,6 +762,14 @@ function buildLegacyJsonSnapshot() {
       file: video.file_name,
       mimetype: video.mimetype || "",
       thumbnail: video.thumbnail || "",
+      videoHash: video.video_hash || "",
+      musicLicense: video.music_license || "",
+      imageLicense: video.image_license || "",
+      musicLicenseProof: video.music_license_proof || "",
+      imageLicenseProof: video.image_license_proof || "",
+      rightsDeclaration: Number(video.rights_declaration) || 0,
+      moderationStatus: video.moderation_status || "approved",
+      moderationReason: video.moderation_reason || "",
       createdAt: video.created_at || video.id,
       likedBy: getLikesByVideoId.all(video.id).map(row => row.username),
       viewedBy: getViewsByVideoId.all(video.id).map(row => row.username),
@@ -421,6 +856,14 @@ function decorateVideo(video, viewer) {
     file: video.file_name,
     mimetype: video.mimetype || "",
     thumbnail: video.thumbnail || "",
+    videoHash: video.video_hash || "",
+    musicLicense: video.music_license || "",
+    imageLicense: video.image_license || "",
+    musicLicenseProof: video.music_license_proof || "",
+    imageLicenseProof: video.image_license_proof || "",
+    rightsDeclaration: Number(video.rights_declaration) || 0,
+    moderationStatus: video.moderation_status || "approved",
+    moderationReason: video.moderation_reason || "",
     likes: getRowValue(likesRow, "count"),
     views: getRowValue(viewsRow, "count"),
     likedBy: [],
@@ -489,6 +932,17 @@ migrateFromLegacyJsonIfNeeded()
 
 app.use(express.json({ limit: "10mb" }))
 app.use(cors())
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+  contentSecurityPolicy: false
+}))
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados pedidos. Tenta novamente mais tarde." }
+}))
 app.use(express.static(PUBLIC_DIR))
 app.use("/uploads", express.static(UPLOADS_DIR))
 
@@ -568,6 +1022,11 @@ app.post("/upload", uploadHandler, (req, res) => {
   const user = String(req.body.user || "").trim()
   const title = String(req.body.title || "").trim()
   const desc = String(req.body.desc || "").trim()
+  const musicLicense = String(req.body.musicLicense || "").trim()
+  const imageLicense = String(req.body.imageLicense || "").trim()
+  const musicLicenseProof = String(req.body.musicLicenseProof || "").trim()
+  const imageLicenseProof = String(req.body.imageLicenseProof || "").trim()
+  const rightsDeclaration = String(req.body.rightsDeclaration || "") === "1"
   const videoFile = req.files?.video?.[0]
   const thumbnailFile = req.files?.thumbnail?.[0]
 
@@ -583,16 +1042,183 @@ app.post("/upload", uploadHandler, (req, res) => {
     return res.status(404).json({ error: "Utilizador não encontrado" })
   }
 
+  if (!MODERATOR_USERS.length) {
+    try {
+      if (videoFile?.filename) {
+        const tempVideoPath = path.resolve(UPLOADS_DIR, String(videoFile.filename || ""))
+        if (tempVideoPath.startsWith(path.resolve(UPLOADS_DIR) + path.sep) && fs.existsSync(tempVideoPath)) {
+          fs.unlinkSync(tempVideoPath)
+        }
+      }
+
+      if (thumbnailFile?.filename) {
+        const tempThumbPath = path.resolve(UPLOADS_DIR, String(thumbnailFile.filename || ""))
+        if (tempThumbPath.startsWith(path.resolve(UPLOADS_DIR) + path.sep) && fs.existsSync(tempThumbPath)) {
+          fs.unlinkSync(tempThumbPath)
+        }
+      }
+    } catch (_) {}
+
+    return res.status(503).json({ error: "Uploads desativados até configurar MODERATOR_USERS" })
+  }
+
+  const videoPath = path.resolve(UPLOADS_DIR, String(videoFile.filename || ""))
+  if (!videoPath.startsWith(path.resolve(UPLOADS_DIR) + path.sep) || !fs.existsSync(videoPath)) {
+    return res.status(400).json({ error: "Ficheiro de vídeo inválido" })
+  }
+
+  const videoHash = computeFileSha256(videoPath)
+  const analysis = runLocalAiComplianceAnalysis({
+    title,
+    desc,
+    originalFileName: videoFile.originalname || videoFile.filename,
+    musicLicense,
+    imageLicense,
+    musicLicenseProof,
+    imageLicenseProof,
+    rightsDeclaration,
+    videoHash
+  })
+
+  if (!analysis.approvedForPendingQueue) {
+    deleteUploadAsset(videoFile?.filename)
+    deleteUploadAsset(thumbnailFile?.filename)
+
+    const mustBan = analysis.violationType === "blocked-content" || analysis.violationType === "external-copy"
+    if (mustBan) {
+      const banResult = banUserAndPurgeContent(user, analysis.summary)
+      logComplianceEvent({
+        eventType: "upload-banned",
+        userUsername: user,
+        severity: "high",
+        message: "Conta banida por violação crítica no upload",
+        details: { analysis, removedVideos: banResult.removedVideos }
+      })
+      return res.status(403).json({
+        error: "Conta banida por vídeo não permitido. Conta e vídeos removidos.",
+        detail: analysis.summary,
+        banned: banResult.banned,
+        removedVideos: banResult.removedVideos,
+        analysis
+      })
+    }
+
+    logComplianceEvent({
+      eventType: "upload-blocked",
+      userUsername: user,
+      severity: "medium",
+      message: analysis.decisions[0] || "Upload bloqueado na análise automática",
+      details: { analysis }
+    })
+
+    return res.status(400).json({
+      error: analysis.decisions[0] || "Upload bloqueado na análise automática",
+      analysis
+    })
+  }
+
   const id = Date.now()
   db.prepare(`
-    INSERT INTO videos (id, user_username, title, description, file_name, mimetype, thumbnail, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, user, title, desc, videoFile.filename, String(videoFile.mimetype || ""), thumbnailFile ? thumbnailFile.filename : "", id)
+    INSERT INTO videos (id, user_username, title, description, file_name, mimetype, thumbnail, video_hash, music_license, image_license, music_license_proof, image_license_proof, rights_declaration, moderation_status, moderation_reason, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    user,
+    title,
+    desc,
+    videoFile.filename,
+    String(videoFile.mimetype || ""),
+    thumbnailFile ? thumbnailFile.filename : "",
+    videoHash,
+    musicLicense,
+    imageLicense,
+    musicLicenseProof,
+    imageLicenseProof,
+    rightsDeclaration ? 1 : 0,
+    "pending",
+    `${MODERATION_PENDING_REASON} ${analysis.warnings.length ? `Avisos: ${analysis.warnings.join("; ")}` : ""}`.trim(),
+    id
+  )
 
   persistLegacyJsonSnapshot()
+  logComplianceEvent({
+    eventType: "upload-pending-review",
+    userUsername: user,
+    videoId: id,
+    severity: analysis.warnings.length ? "medium" : "info",
+    message: "Upload enviado para revisão manual",
+    details: { analysis }
+  })
 
   const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(id)
-  return res.json(decorateVideo(video, user))
+  return res.json({
+    ...decorateVideo(video, user),
+    pendingModeration: true,
+    moderationMessage: MODERATION_PENDING_REASON,
+    analysis
+  })
+})
+
+app.post("/video/moderate", (req, res) => {
+  const videoId = Number(req.body.id)
+  const moderator = String(req.body.moderator || "").trim()
+  const approved = Boolean(req.body.approved)
+  const reason = String(req.body.reason || "").trim()
+
+  const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(videoId)
+
+  if (!video) {
+    return res.status(404).json({ error: "Vídeo não encontrado" })
+  }
+
+  if (!moderator || !getUserByUsername(moderator)) {
+    return res.status(400).json({ error: "Moderador inválido" })
+  }
+
+  const isListedModerator = MODERATOR_USERS.includes(moderator)
+  const canModerate = isListedModerator
+
+  if (!canModerate) {
+    return res.status(403).json({ error: "Sem permissão para moderar" })
+  }
+
+  const status = approved ? "approved" : "rejected"
+  const moderationReason = reason || (approved ? "Aprovado: vídeo com trotinete" : "Rejeitado na revisão de trotinete")
+
+  if (!approved) {
+    const banResult = banUserAndPurgeContent(video.user_username, moderationReason)
+    logComplianceEvent({
+      eventType: "moderation-rejected-ban",
+      userUsername: video.user_username,
+      videoId,
+      severity: "high",
+      message: "Vídeo rejeitado em moderação e conta banida",
+      details: { moderator, moderationReason, removedVideos: banResult.removedVideos }
+    })
+    return res.status(403).json({
+      error: "Conta banida por vídeo não permitido. Conta e vídeos removidos.",
+      bannedUser: video.user_username,
+      banned: banResult.banned,
+      removedVideos: banResult.removedVideos,
+      moderationReason
+    })
+  }
+
+  db.prepare("UPDATE videos SET moderation_status = ?, moderation_reason = ? WHERE id = ?")
+    .run(status, moderationReason, videoId)
+
+  persistLegacyJsonSnapshot()
+  logComplianceEvent({
+    eventType: "moderation-approved",
+    userUsername: video.user_username,
+    videoId,
+    severity: "info",
+    message: "Vídeo aprovado em moderação",
+    details: { moderator, moderationReason }
+  })
+
+  const updatedVideo = db.prepare("SELECT * FROM videos WHERE id = ?").get(videoId)
+  return res.json(decorateVideo(updatedVideo, moderator))
 })
 
 app.post("/video/update", (req, res) => {
@@ -618,6 +1244,17 @@ app.post("/video/update", (req, res) => {
 
   if (!title) {
     return res.status(400).json({ error: "Nome do vídeo obrigatório" })
+  }
+
+  const moderation = moderateVideoMetadata({
+    title,
+    desc,
+    fileName: video.file_name,
+    videoHash: ""
+  })
+
+  if (!moderation.ok) {
+    return res.status(400).json({ error: moderation.error })
   }
 
   let thumbnail = String(video.thumbnail || "")
@@ -652,6 +1289,10 @@ app.get("/media/:id", (req, res) => {
     return res.status(404).json({ error: "Vídeo não encontrado" })
   }
 
+  if (!isApprovedVideo(video)) {
+    return res.status(403).json({ error: "Vídeo indisponível até aprovação de moderação" })
+  }
+
   const uploadsRoot = path.resolve(UPLOADS_DIR)
   const mediaPath = path.resolve(uploadsRoot, String(video.file_name || ""))
 
@@ -680,6 +1321,10 @@ app.get("/thumbnail/:id", (req, res) => {
     return res.status(404).json({ error: "Thumbnail não disponível" })
   }
 
+  if (!isApprovedVideo(video)) {
+    return res.status(403).json({ error: "Thumbnail indisponível até aprovação de moderação" })
+  }
+
   const uploadsRoot = path.resolve(UPLOADS_DIR)
   const thumbPath = path.resolve(uploadsRoot, String(video.thumbnail || ""))
 
@@ -697,7 +1342,7 @@ app.get("/thumbnail/:id", (req, res) => {
 app.get("/videos", (req, res) => {
   const viewer = req.query.viewer ? String(req.query.viewer) : ""
   const searchTerm = String(req.query.q || "").trim().toLowerCase()
-  const allVideos = db.prepare("SELECT * FROM videos ORDER BY created_at DESC").all()
+  const allVideos = db.prepare("SELECT * FROM videos WHERE moderation_status = 'approved' ORDER BY created_at DESC").all()
   const filtered = filterVideosBySearch(allVideos, searchTerm)
   const decorated = filtered.map(video => decorateVideo(video, viewer))
   const ranked = searchTerm
@@ -712,6 +1357,10 @@ app.post("/view", (req, res) => {
 
   if (!video) {
     return res.status(404).json({ error: "Vídeo não encontrado" })
+  }
+
+  if (!isApprovedVideo(video)) {
+    return res.status(403).json({ error: "Vídeo ainda não aprovado" })
   }
 
   if (!user) {
@@ -739,6 +1388,10 @@ app.post("/like", (req, res) => {
 
   if (!video) {
     return res.status(404).json({ error: "Vídeo não encontrado" })
+  }
+
+  if (!isApprovedVideo(video)) {
+    return res.status(403).json({ error: "Vídeo ainda não aprovado" })
   }
 
   if (!user) {
@@ -776,6 +1429,10 @@ app.post("/comment", (req, res) => {
     return res.status(404).json({ error: "Vídeo não encontrado" })
   }
 
+  if (!isApprovedVideo(video)) {
+    return res.status(403).json({ error: "Vídeo ainda não aprovado" })
+  }
+
   if (!text) {
     return res.status(400).json({ error: "Comentário vazio" })
   }
@@ -804,6 +1461,10 @@ app.post("/comment/delete", (req, res) => {
 
   if (!video) {
     return res.status(404).json({ error: "Vídeo não encontrado" })
+  }
+
+  if (!isApprovedVideo(video)) {
+    return res.status(403).json({ error: "Vídeo ainda não aprovado" })
   }
 
   if (!user) {
@@ -887,6 +1548,7 @@ app.get("/following/:user", (req, res) => {
     FROM videos v
     INNER JOIN follows f ON f.following = v.user_username
     WHERE f.follower = ?
+      AND v.moderation_status = 'approved'
     ORDER BY v.created_at DESC
   `).all(user)
 
@@ -898,16 +1560,21 @@ app.get("/following/:user", (req, res) => {
 
 app.get("/profile/:username", (req, res) => {
   const username = String(req.params.username || "").trim()
+  const viewer = String(req.query.viewer || "").trim()
   const user = getUserByUsername(username)
 
   if (!user) {
     return res.status(404).json({ error: "Perfil não encontrado" })
   }
 
+  const videosQuery = viewer === username
+    ? "SELECT * FROM videos WHERE user_username = ? ORDER BY id DESC"
+    : "SELECT * FROM videos WHERE user_username = ? AND moderation_status = 'approved' ORDER BY id DESC"
+
   const videos = db
-    .prepare("SELECT * FROM videos WHERE user_username = ? ORDER BY id DESC")
+    .prepare(videosQuery)
     .all(user.username)
-    .map(video => decorateVideo(video, user.username))
+    .map(video => decorateVideo(video, viewer || user.username))
 
   const followers = getRowValue(db.prepare("SELECT COUNT(*) AS count FROM follows WHERE following = ?").get(user.username), "count")
   const following = getRowValue(db.prepare("SELECT COUNT(*) AS count FROM follows WHERE follower = ?").get(user.username), "count")
@@ -938,6 +1605,141 @@ app.post("/profile/update", (req, res) => {
   db.prepare("UPDATE users SET display_name = ?, avatar = ? WHERE username = ?").run(displayName, avatar, username)
   persistLegacyJsonSnapshot()
   return res.json(getSafeUser(getUserByUsername(username)))
+})
+
+app.get("/compliance/audit", (req, res) => {
+  const moderator = String(req.query.moderator || "").trim()
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 100, 500))
+
+  if (!isModerator(moderator)) {
+    return res.status(403).json({ error: "Acesso restrito a moderadores" })
+  }
+
+  const events = db
+    .prepare("SELECT * FROM compliance_audit ORDER BY created_at DESC LIMIT ?")
+    .all(limit)
+    .map(event => ({
+      ...event,
+      details: (() => {
+        try {
+          return JSON.parse(event.details_json || "{}")
+        } catch (_) {
+          return {}
+        }
+      })()
+    }))
+
+  return res.json({ events })
+})
+
+app.post("/compliance/takedown", (req, res) => {
+  const reporterEmail = String(req.body.reporterEmail || "").trim()
+  const claimantName = String(req.body.claimantName || "").trim()
+  const reason = String(req.body.reason || "").trim()
+  const evidenceUrl = String(req.body.evidenceUrl || "").trim()
+  const videoId = req.body.videoId ? Number(req.body.videoId) : null
+  const targetUsername = String(req.body.targetUsername || "").trim()
+
+  if (!reporterEmail || !claimantName || !reason) {
+    return res.status(400).json({ error: "reporterEmail, claimantName e reason são obrigatórios" })
+  }
+
+  const requestId = Date.now()
+  db.prepare(`
+    INSERT INTO takedown_requests (id, reporter_email, claimant_name, video_id, target_username, reason, evidence_url, status, resolution_note, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '', ?)
+  `).run(requestId, reporterEmail, claimantName, videoId, targetUsername, reason, evidenceUrl, requestId)
+
+  logComplianceEvent({
+    eventType: "takedown-created",
+    userUsername: targetUsername,
+    videoId,
+    severity: "high",
+    message: "Pedido de takedown criado",
+    details: { reporterEmail, claimantName, reason, evidenceUrl }
+  })
+
+  return res.status(201).json({ ok: true, requestId })
+})
+
+app.post("/compliance/takedown/:id/resolve", (req, res) => {
+  const requestId = Number(req.params.id)
+  const moderator = String(req.body.moderator || "").trim()
+  const action = String(req.body.action || "").trim().toLowerCase()
+  const resolutionNote = String(req.body.resolutionNote || "").trim()
+
+  if (!isModerator(moderator)) {
+    return res.status(403).json({ error: "Acesso restrito a moderadores" })
+  }
+
+  const request = db.prepare("SELECT * FROM takedown_requests WHERE id = ?").get(requestId)
+  if (!request) {
+    return res.status(404).json({ error: "Pedido de takedown não encontrado" })
+  }
+
+  if (!["dismiss", "remove-video", "ban-user"].includes(action)) {
+    return res.status(400).json({ error: "Ação inválida" })
+  }
+
+  const now = Date.now()
+  let removedVideos = 0
+
+  if (action === "remove-video" && request.video_id) {
+    const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(Number(request.video_id))
+    if (video) {
+      deleteUploadAsset(video.file_name)
+      deleteUploadAsset(video.thumbnail)
+      db.prepare("DELETE FROM videos WHERE id = ?").run(video.id)
+      removedVideos = 1
+    }
+  }
+
+  if (action === "ban-user" && request.target_username) {
+    const result = banUserAndPurgeContent(request.target_username, resolutionNote || "Ban por takedown")
+    removedVideos = result.removedVideos
+  }
+
+  db.prepare(`
+    UPDATE takedown_requests
+    SET status = ?, resolution_note = ?, resolved_at = ?, resolved_by = ?
+    WHERE id = ?
+  `).run("closed", resolutionNote || action, now, moderator, requestId)
+
+  logComplianceEvent({
+    eventType: "takedown-resolved",
+    userUsername: request.target_username,
+    videoId: request.video_id,
+    severity: action === "dismiss" ? "info" : "high",
+    message: `Takedown resolvido com ação: ${action}`,
+    details: { moderator, resolutionNote, removedVideos }
+  })
+
+  persistLegacyJsonSnapshot()
+  return res.json({ ok: true, action, removedVideos })
+})
+
+app.post("/compliance/purge-all-videos", (req, res) => {
+  const moderator = String(req.body.moderator || "").trim()
+  const confirmation = String(req.body.confirmation || "").trim()
+
+  if (!isModerator(moderator)) {
+    return res.status(403).json({ error: "Acesso restrito a moderadores" })
+  }
+
+  if (confirmation !== "DELETE_ALL_VIDEOS") {
+    return res.status(400).json({ error: "Confirmação inválida" })
+  }
+
+  const result = purgeAllVideosAndRelations()
+  logComplianceEvent({
+    eventType: "emergency-purge-all-videos",
+    userUsername: moderator,
+    severity: "high",
+    message: "Purge global de vídeos executado",
+    details: { removedVideos: result.removedVideos }
+  })
+
+  return res.json({ ok: true, removedVideos: result.removedVideos })
 })
 
 app.get("/health", (req, res) => {

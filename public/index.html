@@ -73,11 +73,38 @@
 <input id="desc" placeholder="Descrição (opcional)">
 <input type="file" id="video" accept="video/*">
 <div>
+<p class="muted" style="margin:0 0 6px;font-size:13px">Direitos da música</p>
+<select id="musicLicense">
+<option value="">Seleciona uma opção</option>
+<option value="original">Música original minha</option>
+<option value="creative-commons">Música com Creative Commons</option>
+<option value="licensed">Música licenciada/autorizada</option>
+<option value="no-audio">Sem música/sem áudio protegido</option>
+</select>
+</div>
+<input id="musicLicenseProof" placeholder="Prova de licença da música (URL, contrato ou referência)">
+<div>
 <p class="muted" style="margin:0 0 6px;font-size:13px">Capa do vídeo (opcional)</p>
 <input type="file" id="thumbnail" accept="image/*">
 </div>
+<div>
+<p class="muted" style="margin:0 0 6px;font-size:13px">Direitos da imagem/capa</p>
+<select id="imageLicense">
+<option value="">Seleciona uma opção</option>
+<option value="original">Imagem original minha</option>
+<option value="creative-commons">Imagem com Creative Commons</option>
+<option value="licensed">Imagem licenciada/autorizada</option>
+<option value="none">Sem capa</option>
+</select>
 </div>
-<button onclick="upload()">Publicar vídeo</button>
+<input id="imageLicenseProof" placeholder="Prova de licença da imagem/capa (URL, contrato ou referência)">
+<label class="muted" style="display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.35">
+<input id="rightsDeclaration" type="checkbox" style="width:auto;margin-top:2px">
+Declaro que tenho direitos legais para usar música, imagem e vídeo enviados.
+</label>
+</div>
+<button id="uploadButton" onclick="upload()">Publicar vídeo</button>
+<p id="uploadAnalysisStatus" class="muted" style="margin-top:10px;font-size:13px;min-height:20px"></p>
 </div>
 </div>
 </section>

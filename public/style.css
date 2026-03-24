@@ -771,6 +771,29 @@ input{
 }
 input:focus{ border-color:rgba(47,107,255,.55); }
 input[type="file"]{ padding:10px 14px; cursor:pointer; color:#b7bfd8; }
+input[type="checkbox"]{
+  padding:0;
+  border:none;
+  background:transparent;
+  accent-color:#2f6bff;
+}
+
+select{
+  width:100%;
+  padding:13px 16px;
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:14px;
+  background:rgba(10,13,22,.9);
+  color:white;
+  outline:none;
+  font-size:15px;
+  font-family:inherit;
+  transition:border-color .2s;
+}
+
+select:focus{
+  border-color:rgba(47,107,255,.55);
+}
 
 /* ── BUTTONS ── */
 button{

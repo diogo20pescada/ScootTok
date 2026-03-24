@@ -30,6 +30,8 @@ const videoEditModal = document.getElementById("videoEditModal")
 const videoEditTitleInput = document.getElementById("videoEditTitleInput")
 const videoEditDescInput = document.getElementById("videoEditDescInput")
 const videoEditThumbnailInput = document.getElementById("videoEditThumbnailInput")
+const uploadButton = document.getElementById("uploadButton")
+const uploadAnalysisStatus = document.getElementById("uploadAnalysisStatus")
 const API_BASE_URL = String(window.SCOOTTOK_API_BASE_URL || "").trim().replace(/\/$/, "")
 let editingVideoId = null
 
@@ -339,6 +341,11 @@ async function upload() {
 	const thumbnailFile = document.getElementById("thumbnail").files[0]
 	const title = document.getElementById("title").value.trim()
 	const desc = document.getElementById("desc").value.trim()
+	const musicLicense = document.getElementById("musicLicense").value
+	const imageLicense = document.getElementById("imageLicense").value
+	const musicLicenseProof = document.getElementById("musicLicenseProof").value.trim()
+	const imageLicenseProof = document.getElementById("imageLicenseProof").value.trim()
+	const rightsDeclaration = Boolean(document.getElementById("rightsDeclaration")?.checked)
 
 	if (!videoFile) {
 		alert("Escolhe um vídeo")
@@ -350,15 +357,54 @@ async function upload() {
 		return
 	}
 
+	if (!musicLicense) {
+		alert("Seleciona os direitos da música")
+		return
+	}
+
+	if (!imageLicense) {
+		alert("Seleciona os direitos da imagem/capa")
+		return
+	}
+
+	if ((musicLicense === "creative-commons" || musicLicense === "licensed") && !musicLicenseProof) {
+		alert("Adiciona prova de licença da música")
+		return
+	}
+
+	if ((imageLicense === "creative-commons" || imageLicense === "licensed") && !imageLicenseProof) {
+		alert("Adiciona prova de licença da imagem/capa")
+		return
+	}
+
+	if (!rightsDeclaration) {
+		alert("Tens de confirmar a declaração de direitos")
+		return
+	}
+
 	const form = new FormData()
 	form.append("video", videoFile)
 	if (thumbnailFile) form.append("thumbnail", thumbnailFile)
 	form.append("user", currentUser.username)
 	form.append("title", title)
 	form.append("desc", desc)
+	form.append("musicLicense", musicLicense)
+	form.append("imageLicense", imageLicense)
+	form.append("musicLicenseProof", musicLicenseProof)
+	form.append("imageLicenseProof", imageLicenseProof)
+	form.append("rightsDeclaration", rightsDeclaration ? "1" : "0")
+
+	if (uploadButton) {
+		uploadButton.disabled = true
+		uploadButton.textContent = "A analisar..."
+	}
+
+	if (uploadAnalysisStatus) {
+		uploadAnalysisStatus.textContent = "Analisando com IA de segurança e direitos autorais..."
+	}
 
 	try {
-		await api("/upload", {
+		const uploadResult = await api("/upload", {
 			method: "POST",
 			body: form
 		})
@@ -367,10 +413,32 @@ async function upload() {
 		document.getElementById("desc").value = ""
 		document.getElementById("video").value = ""
 		document.getElementById("thumbnail").value = ""
+		document.getElementById("musicLicense").value = ""
+		document.getElementById("imageLicense").value = ""
+		document.getElementById("musicLicenseProof").value = ""
+		document.getElementById("imageLicenseProof").value = ""
+		document.getElementById("rightsDeclaration").checked = false
+		if (uploadResult?.pendingModeration) {
+			alert(uploadResult.moderationMessage || "Vídeo enviado para moderação antes de aparecer no feed.")
+		}
+
+		if (uploadAnalysisStatus) {
+			const analysisMessage = uploadResult?.analysis?.summary || uploadResult?.moderationMessage || "Análise concluída."
+			uploadAnalysisStatus.textContent = analysisMessage
+		}
+
 		loadVideos()
 		showFeedView()
 	} catch (error) {
+		if (uploadAnalysisStatus) {
+			uploadAnalysisStatus.textContent = `Falhou na análise: ${error.message}`
+		}
 		alert(error.message)
+	} finally {
+		if (uploadButton) {
+			uploadButton.disabled = false
+			uploadButton.textContent = "Publicar vídeo"
+		}
 	}
 }
 
@@ -505,13 +573,12 @@ function renderVideoCard(videoData, options = {}) {
 function renderSearchResultCard(videoData) {
 	const ownerName = escapeHtml(videoData.owner?.displayName || videoData.user)
 	const title = escapeHtml(videoData.title || "Sem título")
-	const encodedTitle = encodeURIComponent(String(videoData.title || "Sem título"))
 	const thumb = videoData.thumbnail
 		? `<img class="search-thumb" src="${toAppUrl(`/thumbnail/${videoData.id}`)}" alt="Capa de ${title}">`
 		: `<div class="search-thumb-fallback">Sem capa</div>`
 
 	return `
-		<article class="search-card" onclick="openSearchPreview(${videoData.id}, '${encodedTitle}')">
+		<article class="search-card" onclick="openSearchFeed(${videoData.id})">
 			${thumb}
 			<div class="search-card-meta">
 				<div class="search-card-title">${title}</div>
@@ -519,6 +586,63 @@ function renderSearchResultCard(videoData) {
 			</div>
 		</article>
 	`
+}
+
+function getSearchTokens(videoData) {
+	return `${videoData.title || ""} ${videoData.desc || ""}`
+		.toLowerCase()
+		.split(/[^a-z0-9à-ÿ]+/i)
+		.filter(token => token.length > 2)
+}
+
+function rankRelatedVideos(selectedVideo, videos) {
+	const selectedTokens = new Set(getSearchTokens(selectedVideo))
+
+	return videos
+		.filter(video => Number(video.id) !== Number(selectedVideo.id))
+		.map(video => {
+			const tokens = getSearchTokens(video)
+			let sharedTokens = 0
+			for (const token of tokens) {
+				if (selectedTokens.has(token)) {
+					sharedTokens += 1
+				}
+			}
+
+			const sameOwnerBonus = video.user === selectedVideo.user ? 6 : 0
+			const popularityBoost = Math.min(Number(video.views) || 0, 20) / 10
+			const recencyBoost = (Number(video.createdAt) || Number(video.id) || 0) / 1e15
+			const relevanceScore = (sharedTokens * 2) + sameOwnerBonus + popularityBoost + recencyBoost
+
+			return { video, relevanceScore }
+		})
+		.sort((a, b) => b.relevanceScore - a.relevanceScore)
+		.map(item => item.video)
+}
+
+async function openSearchFeed(id) {
+	if (!currentUser) {
+		return
+	}
+
+	try {
+		const searchParam = currentSearchQuery ? `&q=${encodeURIComponent(currentSearchQuery)}` : ""
+		const videos = await api(`/videos?viewer=${encodeURIComponent(currentUser.username)}${searchParam}`)
+		const selectedVideo = videos.find(video => Number(video.id) === Number(id))
+
+		if (!selectedVideo) {
+			alert("Vídeo não encontrado nos resultados")
+			return
+		}
+
+		const ordered = [selectedVideo, ...rankRelatedVideos(selectedVideo, videos)]
+		setActiveTab("explore")
+		sectionTitle.textContent = "Explorar"
+		renderVideoList(feed, ordered, { searchAsFeed: true })
+		showFeedView()
+	} catch (error) {
+		alert(error.message)
+	}
 }
 
 function openSearchPreview(id, encodedTitle) {
@@ -625,7 +749,7 @@ function renderVideoList(container, videos, options = {}) {
 		return
 	}
 
-	const isSearchMode = Boolean(currentSearchQuery) && !options.profile
+	const isSearchMode = Boolean(currentSearchQuery) && !options.profile && !options.searchAsFeed
 	if (isSearchMode) {
 		const ordered = [...videos].sort((a, b) => (b.views || 0) - (a.views || 0) || ((b.createdAt || b.id || 0) - (a.createdAt || a.id || 0)))
 		container.classList.add("search-results-mode")
@@ -673,7 +797,8 @@ async function loadFollowing() {
 async function loadProfile(username = currentUser.username) {
 	try {
 		currentProfileUsername = username
-		const data = await api(`/profile/${encodeURIComponent(username)}`)
+		const viewerParam = currentUser?.username ? `?viewer=${encodeURIComponent(currentUser.username)}` : ""
+		const data = await api(`/profile/${encodeURIComponent(username)}${viewerParam}`)
 		renderProfileHeader(data.user, data.followers, data.following)
 		renderVideoList(profileVideos, data.videos, { profile: true })
 	} catch (error) {
