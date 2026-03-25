@@ -416,15 +416,21 @@ function runLocalAiComplianceAnalysis({
   }
 
   const severity = decisions.length ? "high" : warnings.length ? "medium" : "low"
-  const approvedForPendingQueue = decisions.length === 0
-  const summary = approvedForPendingQueue
-    ? "Análise concluída: vídeo enviado para revisão manual."
-    : "Análise concluiu risco alto: upload bloqueado."
+  const accepted = decisions.length === 0
+  const requiresManualReview = accepted && warnings.length > 0
+  const autoApproved = accepted && !requiresManualReview
+  const summary = !accepted
+    ? "Análise concluiu risco alto: upload bloqueado."
+    : requiresManualReview
+      ? "Análise concluída: vídeo enviado para revisão manual."
+      : "Análise concluída: vídeo aprovado automaticamente."
 
   return {
     summary,
     severity,
-    approvedForPendingQueue,
+    accepted,
+    requiresManualReview,
+    autoApproved,
     decisions,
     warnings,
     rightsDeclaration: Boolean(rightsDeclaration),
@@ -1080,7 +1086,7 @@ app.post("/upload", uploadHandler, (req, res) => {
     videoHash
   })
 
-  if (!analysis.approvedForPendingQueue) {
+  if (!analysis.accepted) {
     deleteUploadAsset(videoFile?.filename)
     deleteUploadAsset(thumbnailFile?.filename)
 
@@ -1117,6 +1123,11 @@ app.post("/upload", uploadHandler, (req, res) => {
     })
   }
 
+  const moderationStatus = analysis.requiresManualReview ? "pending" : "approved"
+  const moderationReason = analysis.requiresManualReview
+    ? `${MODERATION_PENDING_REASON} ${analysis.warnings.length ? `Avisos: ${analysis.warnings.join("; ")}` : ""}`.trim()
+    : "Aprovado automaticamente pela análise inicial"
+
   const id = Date.now()
   db.prepare(`
     INSERT INTO videos (id, user_username, title, description, file_name, mimetype, thumbnail, video_hash, music_license, image_license, music_license_proof, image_license_proof, rights_declaration, moderation_status, moderation_reason, created_at)
@@ -1135,26 +1146,37 @@ app.post("/upload", uploadHandler, (req, res) => {
     musicLicenseProof,
     imageLicenseProof,
     rightsDeclaration ? 1 : 0,
-    "pending",
-    `${MODERATION_PENDING_REASON} ${analysis.warnings.length ? `Avisos: ${analysis.warnings.join("; ")}` : ""}`.trim(),
+    moderationStatus,
+    moderationReason,
     id
   )
 
   persistLegacyJsonSnapshot()
-  logComplianceEvent({
-    eventType: "upload-pending-review",
-    userUsername: user,
-    videoId: id,
-    severity: analysis.warnings.length ? "medium" : "info",
-    message: "Upload enviado para revisão manual",
-    details: { analysis }
-  })
+  if (analysis.requiresManualReview) {
+    logComplianceEvent({
+      eventType: "upload-pending-review",
+      userUsername: user,
+      videoId: id,
+      severity: analysis.warnings.length ? "medium" : "info",
+      message: "Upload enviado para revisão manual",
+      details: { analysis }
+    })
+  } else {
+    logComplianceEvent({
+      eventType: "upload-auto-approved",
+      userUsername: user,
+      videoId: id,
+      severity: "info",
+      message: "Upload aprovado automaticamente",
+      details: { analysis }
+    })
+  }
 
   const video = db.prepare("SELECT * FROM videos WHERE id = ?").get(id)
   return res.json({
     ...decorateVideo(video, user),
-    pendingModeration: true,
-    moderationMessage: MODERATION_PENDING_REASON,
+    pendingModeration: analysis.requiresManualReview,
+    moderationMessage: analysis.requiresManualReview ? MODERATION_PENDING_REASON : "Vídeo aprovado automaticamente.",
     analysis
   })
 })
